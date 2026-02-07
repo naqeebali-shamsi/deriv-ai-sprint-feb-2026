@@ -64,7 +64,11 @@ def build_orbital_html(backend_url: str) -> str:
 
     init_script = f"""
     (function() {{
-      var BACKEND_URL = window.location.protocol + "//" + window.location.hostname + ":{backend_port}";
+      // Resolve backend host from parent frame (srcdoc iframes have no hostname)
+      var _host;
+      try {{ _host = window.parent.location.hostname; }} catch(e) {{ _host = ''; }}
+      if (!_host) {{ var _m = (document.referrer || '').match(/^https?:\\/\\/([^:/]+)/); _host = _m ? _m[1] : 'localhost'; }}
+      var BACKEND_URL = 'http://' + _host + ':{backend_port}';
 
       function boot() {{
         var canvas = document.getElementById('greenhouse-canvas');
