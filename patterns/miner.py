@@ -14,8 +14,12 @@ from dataclasses import dataclass
 from datetime import datetime
 from uuid import uuid4
 
+import logging
+
 import networkx as nx
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -60,22 +64,26 @@ def build_transaction_graph(transactions: list[dict]) -> nx.DiGraph:
     return G
 
 
-def detect_rings(G: nx.DiGraph, min_size: int = 3) -> list[PatternCard]:
+def detect_rings(G: nx.DiGraph, min_size: int = 3, max_size: int = 20) -> list[PatternCard]:
     """Detect circular fund flows (fraud rings / wash trading).
 
     Uses Tarjan's SCC algorithm to find strongly connected components,
     then extracts representative cycles from each SCC subgraph.
-    SCCs of size >= min_size are ring candidates.
+    SCCs of size >= min_size and <= max_size are ring candidates.
     Confidence is inverted: shorter cycles = higher confidence.
     Ranked by total edge weight (flow).
     """
     patterns = []
 
     # Use Tarjan's SCC — O(V+E) — to find ring candidates
-    sccs = [
-        scc for scc in nx.strongly_connected_components(G)
-        if len(scc) >= min_size
-    ]
+    sccs = []
+    for scc in nx.strongly_connected_components(G):
+        if len(scc) < min_size:
+            continue
+        if len(scc) > max_size:
+            logger.info("SCC of %d members filtered by max_size=%d in detect_rings", len(scc), max_size)
+            continue
+        sccs.append(scc)
 
     if not sccs:
         return patterns
@@ -361,7 +369,7 @@ def detect_velocity_clusters(transactions: list[dict], window_minutes: int = 60,
     return patterns[:5]
 
 
-def detect_dense_subgraphs(G: nx.DiGraph, min_density: float = 0.5) -> list[PatternCard]:
+def detect_dense_subgraphs(G: nx.DiGraph, min_density: float = 0.5, max_size: int = 20) -> list[PatternCard]:
     """Detect dense subgraphs that may indicate coordinated fraud.
 
     Uses Tarjan's SCC to preserve directionality (not converting to undirected).
@@ -372,6 +380,9 @@ def detect_dense_subgraphs(G: nx.DiGraph, min_density: float = 0.5) -> list[Patt
 
     for scc in nx.strongly_connected_components(G):
         if len(scc) < 3:
+            continue
+        if len(scc) > max_size:
+            logger.info("SCC of %d members filtered by max_size=%d in detect_dense_subgraphs", len(scc), max_size)
             continue
 
         subgraph = G.subgraph(scc)
@@ -429,6 +440,39 @@ def _structural_signature(pattern: PatternCard) -> str:
     return hashlib.sha256(str(key).encode()).hexdigest()[:16]
 
 
+def _infer_fraud_typology(pattern: PatternCard) -> tuple[str, str]:
+    """Infer fraud typology and human-readable label from pattern characteristics.
+
+    Returns (typology_code, typology_label).
+    """
+    rule = pattern.detection_rule or {}
+    rule_type = rule.get("type", "")
+    stats = pattern.stats or {}
+
+    if rule_type == "cycle":
+        return ("wash_trading", "Wash Trading")
+
+    if rule_type == "hub_out":
+        out_degree = stats.get("out_degree", 0)
+        total_amount = stats.get("total_amount", 0)
+        if out_degree > 0 and total_amount > 0:
+            avg_amount = total_amount / out_degree
+            if avg_amount < 5000:
+                return ("structuring", "Structuring")
+        return ("fund_distribution", "Fund Distribution")
+
+    if rule_type == "hub_in":
+        return ("money_mule", "Money Mule")
+
+    if rule_type == "velocity":
+        return ("velocity_abuse", "Velocity Abuse")
+
+    if rule_type == "dense_subgraph":
+        return ("coordinated_fraud", "Coordinated Fraud")
+
+    return ("unclassified", "Unclassified")
+
+
 def mine_patterns(transactions: list[dict]) -> list[PatternCard]:
     """Run all pattern mining algorithms on transaction data.
 
@@ -469,6 +513,49 @@ async def run_mining_job_async(db) -> list[PatternCard]:
     Deduplicates by structural signature (sorted member_ids hash).
     """
     now = datetime.utcnow().isoformat()
+
+    # Clean up over-sized false-positive patterns
+    MAX_LEGITIMATE_PATTERN_SIZE = 20
+    try:
+        count_cursor = await db.execute(
+            """SELECT COUNT(*) FROM pattern_cards
+               WHERE status = 'active'
+               AND detection_rule IS NOT NULL
+               AND json_array_length(json_extract(detection_rule, '$.member_ids')) > ?""",
+            (MAX_LEGITIMATE_PATTERN_SIZE,),
+        )
+        count_row = await count_cursor.fetchone()
+        stale_count = count_row[0] if count_row else 0
+        if stale_count > 0:
+            logger.info("Cleaning up %d oversized pattern cards (member_ids > %d)", stale_count, MAX_LEGITIMATE_PATTERN_SIZE)
+            await db.execute(
+                """DELETE FROM pattern_cards
+                   WHERE status = 'active'
+                   AND detection_rule IS NOT NULL
+                   AND json_array_length(json_extract(detection_rule, '$.member_ids')) > ?""",
+                (MAX_LEGITIMATE_PATTERN_SIZE,),
+            )
+            await db.commit()
+    except Exception:
+        logger.info("json1 not available, using Python-side cleanup for oversized patterns")
+        cursor = await db.execute(
+            "SELECT pattern_id, detection_rule FROM pattern_cards WHERE status = 'active' AND detection_rule IS NOT NULL"
+        )
+        rows = await cursor.fetchall()
+        to_delete = []
+        for pid, rule_json in rows:
+            try:
+                rule = json.loads(rule_json)
+                member_ids = rule.get("member_ids", [])
+                if isinstance(member_ids, list) and len(member_ids) > MAX_LEGITIMATE_PATTERN_SIZE:
+                    to_delete.append(pid)
+            except (json.JSONDecodeError, TypeError):
+                continue
+        if to_delete:
+            logger.info("Cleaning up %d oversized pattern cards (Python fallback)", len(to_delete))
+            for pid in to_delete[:100]:
+                await db.execute("DELETE FROM pattern_cards WHERE pattern_id = ?", (pid,))
+            await db.commit()
 
     # Fetch recent transactions
     cursor = await db.execute(
@@ -517,6 +604,12 @@ async def run_mining_job_async(db) -> list[PatternCard]:
         sig = _structural_signature(pattern)
         if sig not in existing_signatures:
             existing_signatures.add(sig)
+            # Enrich with fraud typology AFTER dedup (preserves clean names for signature matching)
+            typology_code, typology_label = _infer_fraud_typology(pattern)
+            if pattern.detection_rule:
+                pattern.detection_rule["fraud_typology"] = typology_code
+            if typology_label not in ("Unclassified",) and typology_label not in pattern.name:
+                pattern.name = f"[{typology_label}] {pattern.name}"
             await db.execute(
                 """INSERT INTO pattern_cards
                    (pattern_id, name, description, discovered_at, status, pattern_type,
