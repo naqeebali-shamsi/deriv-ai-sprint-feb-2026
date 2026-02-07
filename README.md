@@ -50,18 +50,13 @@ Meanwhile, with zero user involvement: the pattern miner runs on the transaction
 
 ## Architecture
 
-```
-Simulator ──→ FastAPI Backend ──→ Risk Scorer (ML) ──→ Cases
-                    │                    │                │
-                    │              Pattern Miner      Analyst Labels
-                    │              (Graph Mining)         │
-                    │                    │                │
-                    └──── Retrain ←──────┴────────────────┘
-                              │
-                         Model Update
-```
+![Architecture Diagram](ui/assets/arch_diagram.jpeg)
 
 **Pipeline:** Stream → Score (28 core features + 7 pattern-derived = 35 total) → Case → Label → Learn → Pattern Discovery
+
+Two autonomous feedback loops drive continuous improvement:
+- **Retrain loop** (top): Analyst labels → model retrains → Risk Scorer improves
+- **Feature loop** (bottom): Pattern Miner discovers graph structures → new features flow into Risk Scorer
 
 ---
 
