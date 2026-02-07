@@ -1,0 +1,31 @@
+{
+  "precision": 0.75,
+  "recall": 0.6,
+  "f1": 0.6667,
+  "auc_roc": 0.9143,
+  "train_samples": 160,
+  "test_samples": 40,
+  "fraud_samples": 23,
+  "legit_samples": 177,
+  "feature_importance": {
+    "amount_normalized": 0.2217,
+    "amount_log": 0.194,
+    "amount_high": 0.1124,
+    "is_transfer": 0.1182,
+    "is_withdrawal": 0.0007,
+    "is_deposit": 0.0044,
+    "is_payment": 0.0012,
+    "channel_web": 0.0136,
+    "channel_api": 0.0212,
+    "hour_of_day": 0.0,
+    "is_weekend": 0.0,
+    "hour_risky": 0.0,
+    "sender_txn_count_1h": 0.0007,
+    "sender_txn_count_24h": 0.0004,
+    "sender_amount_sum_1h": 0.3038,
+    "sender_unique_receivers_24h": 0.0016,
+    "time_since_last_txn_minutes": 0.006
+  },
+  "version": "v0.3.0",
+  "trained_at": "2026-02-05T08:56:59.275705"
+}

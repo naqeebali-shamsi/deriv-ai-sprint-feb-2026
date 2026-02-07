@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "pattern_card.schema.json",
+  "title": "PatternCard",
+  "type": "object",
+  "required": ["pattern_id", "name", "discovered_at", "status"],
+  "properties": {
+    "pattern_id": { "type": "string", "format": "uuid" },
+    "name": { "type": "string" },
+    "description": { "type": "string" },
+    "discovered_at": { "type": "string", "format": "date-time" },
+    "status": { "type": "string", "enum": ["active", "inactive", "under_review"] },
+    "pattern_type": { "type": "string", "enum": ["velocity", "graph", "behavioral", "amount", "custom"] },
+    "confidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "detection_rule": {
+      "type": "object",
+      "properties": {
+        "field": { "type": "string" },
+        "operator": { "type": "string" },
+        "threshold": { "type": ["number", "string"] }
+      }
+    },
+    "stats": {
+      "type": "object",
+      "properties": {
+        "matches_total": { "type": "integer", "minimum": 0 },
+        "true_positives": { "type": "integer", "minimum": 0 },
+        "false_positives": { "type": "integer", "minimum": 0 },
+        "precision": { "type": ["number", "null"], "minimum": 0, "maximum": 1 }
+      }
+    },
+    "related_txn_ids": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "additionalProperties": false
+}

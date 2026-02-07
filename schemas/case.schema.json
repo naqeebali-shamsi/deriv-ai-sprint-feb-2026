@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "case.schema.json",
+  "title": "Case",
+  "type": "object",
+  "required": ["case_id", "txn_id", "status", "created_at"],
+  "properties": {
+    "case_id": { "type": "string", "format": "uuid" },
+    "txn_id": { "type": "string", "format": "uuid" },
+    "status": { "type": "string", "enum": ["open", "in_review", "closed"] },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": ["string", "null"], "format": "date-time" },
+    "closed_at": { "type": ["string", "null"], "format": "date-time" },
+    "risk_score": { "type": "number", "minimum": 0, "maximum": 1 },
+    "assigned_to": { "type": ["string", "null"] },
+    "priority": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
+    "matched_patterns": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "additionalProperties": false
+}

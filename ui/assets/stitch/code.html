@@ -1,0 +1,780 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <title>Orbital Greenhouse — Autonomous Fraud Defense</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet" />
+
+    <!-- Tailwind Config -->
+    <script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary":     "#ffb94f",
+                        "secondary":   "#4ade80",
+                        "danger":      "#ef4444",
+                        "scanner":     "#7ec4cf",
+                        "deep-space":  "#0a0b14",
+                        "panel-bg":    "#1e293b",
+                        "border-pixel":"#334155",
+                        "grow-warm":   "rgba(255,185,79,0.15)",
+                    },
+                    fontFamily: {
+                        "display": ["Space Grotesk", "sans-serif"],
+                        "pixel":   ["VT323", "monospace"],
+                    },
+                },
+            },
+        };
+    </script>
+
+    <style>
+        /* ============================================================
+           BASE RESETS
+           ============================================================ */
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Space Grotesk', sans-serif;
+            background: #0a0b14;
+            color: #e2e8f0;
+            overflow: hidden;
+        }
+
+        /* ============================================================
+           PIXEL FONT UTILITY
+           ============================================================ */
+        .pixel-text {
+            font-family: 'VT323', monospace;
+            letter-spacing: 1px;
+            text-rendering: pixelated;
+        }
+
+        /* ============================================================
+           PIXEL BORDER VARIANTS
+           ============================================================ */
+        .pixel-border {
+            position: relative;
+            border: 2px solid #ffb94f;
+            box-shadow:
+                0 0 0 1px #0a0b14,
+                0 0 0 3px #ffb94f,
+                inset 0 0 20px rgba(255,185,79,0.08);
+        }
+
+        .pixel-border-green {
+            border: 2px solid #4ade80;
+            box-shadow:
+                0 0 0 1px #0a0b14,
+                0 0 0 3px #4ade80,
+                inset 0 0 20px rgba(74,222,128,0.08);
+        }
+
+        .pixel-border-blue {
+            border: 2px solid #7ec4cf;
+            box-shadow:
+                0 0 0 1px #0a0b14,
+                0 0 0 3px #7ec4cf,
+                inset 0 0 20px rgba(126,196,207,0.08);
+        }
+
+        .pixel-border-red {
+            border: 2px solid #ef4444;
+            box-shadow:
+                0 0 0 1px #0a0b14,
+                0 0 0 3px #ef4444,
+                inset 0 0 20px rgba(239,68,68,0.08);
+        }
+
+        /* ============================================================
+           CRT SCANLINE OVERLAY
+           ============================================================ */
+        .crt-overlay::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: repeating-linear-gradient(
+                0deg,
+                rgba(0,0,0,0.12) 0px,
+                rgba(0,0,0,0.12) 1px,
+                transparent      1px,
+                transparent       2px
+            );
+            pointer-events: none;
+            z-index: 50;
+        }
+
+        /* ============================================================
+           CUSTOM SCROLLBAR
+           ============================================================ */
+        .custom-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scroll::-webkit-scrollbar-track { background: rgba(0,0,0,0.3); }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #ffb94f; border-radius: 3px; }
+        .custom-scroll::-webkit-scrollbar-thumb:hover { background: #ffc970; }
+
+        /* ============================================================
+           GLOW EFFECTS
+           ============================================================ */
+        .glow-amber  { text-shadow: 0 0 8px #ffb94f, 0 0 16px #ffb94f; }
+        .glow-green  { text-shadow: 0 0 8px #4ade80, 0 0 16px #4ade80; }
+        .glow-red    { text-shadow: 0 0 8px #ef4444, 0 0 16px #ef4444; }
+        .glow-blue   { text-shadow: 0 0 8px #7ec4cf, 0 0 16px #7ec4cf; }
+
+        /* ============================================================
+           STATUS DOT BLINK
+           ============================================================ */
+        .status-blink {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            animation: blink 2s ease-in-out infinite;
+        }
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50%      { opacity: 0.25; }
+        }
+
+        /* ============================================================
+           BRAIN PULSE NOTIFICATION
+           ============================================================ */
+        .brain-pulse {
+            display: none;                       /* hidden by default; JS shows it */
+            position: absolute;
+            bottom: 56px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(30,41,59,0.95);
+            border: 2px solid #4ade80;
+            padding: 10px 24px;
+            border-radius: 4px;
+            z-index: 40;
+            animation: pulse-pop 2s infinite;
+        }
+        @keyframes pulse-pop {
+            0%, 100% { opacity: 1; transform: translateX(-50%) scale(1); }
+            50%      { opacity: 0.85; transform: translateX(-50%) scale(1.04); }
+        }
+
+        /* ============================================================
+           PROGRESS BARS
+           ============================================================ */
+        .bar-track  { height: 6px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden; }
+        .bar-fill   { height: 100%; border-radius: 3px; transition: width 0.4s ease; }
+        .bar-green  { background: #4ade80; }
+        .bar-amber  { background: #ffb94f; }
+        .bar-red    { background: #ef4444; }
+
+        /* ============================================================
+           BUTTONS
+           ============================================================ */
+        .btn-primary {
+            background: #ffb94f;
+            color: #0a0b14;
+            border: 2px solid #ffb94f;
+            padding: 8px 16px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .btn-primary:hover {
+            background: #ffc970;
+            box-shadow: 0 0 18px rgba(255,185,79,0.5);
+        }
+
+        .btn-stop {
+            background: transparent;
+            color: #ef4444;
+            border: 2px solid #ef4444;
+            padding: 8px 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .btn-stop:hover {
+            background: rgba(239,68,68,0.12);
+        }
+
+        .btn-scenario {
+            background: transparent;
+            color: #ffb94f;
+            border: 2px solid #334155;
+            padding: 6px 10px;
+            font-size: 0.8125rem;
+            cursor: pointer;
+            text-align: left;
+            width: 100%;
+            transition: all 0.15s;
+        }
+        .btn-scenario:hover {
+            border-color: #ffb94f;
+            background: rgba(255,185,79,0.06);
+        }
+        .btn-scenario.active {
+            border-color: #ffb94f;
+            background: rgba(255,185,79,0.12);
+        }
+
+        .btn-action {
+            background: transparent;
+            color: #ffb94f;
+            border: 1px solid #334155;
+            padding: 4px 8px;
+            font-size: 0.75rem;
+            cursor: pointer;
+            transition: all 0.15s;
+            flex: 1;
+            text-align: center;
+        }
+        .btn-action:hover {
+            border-color: #ffb94f;
+            background: rgba(255,185,79,0.08);
+        }
+
+        /* ============================================================
+           PATTERN MINI CARD
+           ============================================================ */
+        .pattern-card {
+            background: rgba(30,41,59,0.7);
+            border: 1px solid #334155;
+            padding: 8px 10px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.8125rem;
+            transition: all 0.15s;
+        }
+        .pattern-card:hover {
+            border-color: #ffb94f;
+            background: rgba(30,41,59,1);
+        }
+
+        /* ============================================================
+           QUEUE ITEM
+           ============================================================ */
+        .queue-item {
+            background: rgba(10,11,20,0.6);
+            border-left: 3px solid #ef4444;
+            padding: 10px 10px 8px;
+            transition: all 0.15s;
+        }
+        .queue-item:hover {
+            background: rgba(30,41,59,0.8);
+        }
+
+        /* ============================================================
+           EVENT FEED LINE
+           ============================================================ */
+        .feed-line {
+            padding: 3px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+            line-height: 1.4;
+        }
+
+        /* ============================================================
+           RANGE SLIDER
+           ============================================================ */
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 4px;
+            background: rgba(255,255,255,0.1);
+            outline: none;
+            border-radius: 2px;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 14px; height: 14px;
+            background: #ffb94f;
+            cursor: pointer;
+            border-radius: 2px;
+        }
+        input[type="range"]::-moz-range-thumb {
+            width: 14px; height: 14px;
+            background: #ffb94f;
+            cursor: pointer;
+            border-radius: 2px;
+            border: none;
+        }
+
+        /* ============================================================
+           CHECKBOX CUSTOM
+           ============================================================ */
+        .chk-custom {
+            appearance: none;
+            -webkit-appearance: none;
+            width: 16px; height: 16px;
+            border: 2px solid #334155;
+            background: #0a0b14;
+            cursor: pointer;
+            position: relative;
+            flex-shrink: 0;
+        }
+        .chk-custom:checked {
+            border-color: #ffb94f;
+            background: #ffb94f;
+        }
+        .chk-custom:checked::after {
+            content: "";
+            position: absolute;
+            left: 3px; top: 0;
+            width: 5px; height: 9px;
+            border: solid #0a0b14;
+            border-width: 0 2px 2px 0;
+            transform: rotate(45deg);
+        }
+        .chk-custom:hover { border-color: #ffb94f; }
+
+        /* ============================================================
+           CANVAS BACKGROUND GRADIENT (space → greenhouse warmth)
+           ============================================================ */
+        #greenhouse-canvas {
+            display: block;
+            background: linear-gradient(
+                to right,
+                #0a0b14   0%,
+                #0a0b14   65%,
+                rgba(255,185,79,0.04) 85%,
+                rgba(255,185,79,0.08) 100%
+            );
+        }
+
+        /* ============================================================
+           SECTION DIVIDER
+           ============================================================ */
+        .section-line { border-top: 1px solid rgba(255,185,79,0.2); }
+    </style>
+</head>
+
+<body class="h-screen overflow-hidden">
+<!--
+    ================================================================
+    LAYOUT: fixed h-screen flex-col
+      ├── TOP HUD BAR
+      ├── MIDDLE (flex-1, flex-row)
+      │   ├── LEFT PANEL   260px
+      │   ├── CENTER CANVAS flex-1
+      │   └── RIGHT PANEL  300px
+      └── BOTTOM EVENT FEED 96px
+    ================================================================
+-->
+<div class="flex flex-col h-screen w-screen">
+
+    <!-- ============================================================
+         TOP HUD BAR
+         ============================================================ -->
+    <header class="flex-none h-12 pixel-border-green bg-panel-bg/95 px-5 flex items-center justify-between z-40 backdrop-blur-sm">
+        <!-- Left cluster -->
+        <div class="flex items-center gap-5 pixel-text text-base">
+            <span class="text-lg text-secondary glow-green tracking-wider">&#127793; ORBITAL GREENHOUSE</span>
+            <span class="text-white/50">|</span>
+            <span class="text-white/60">Pods: <span id="hud-pods" class="text-primary font-bold">142</span></span>
+            <span class="text-white/60">Threats: <span id="hud-threats" class="text-danger font-bold">12</span></span>
+            <span class="text-white/60">Garden Health: <span id="hud-health" class="text-secondary font-bold">89%</span></span>
+        </div>
+        <!-- Right cluster -->
+        <div class="flex items-center gap-5 pixel-text text-base">
+            <span class="text-scanner">Defense: <span id="hud-version">v1.2.0</span></span>
+            <span class="flex items-center gap-2">
+                <span class="status-blink bg-secondary"></span>
+                <span id="hud-status" class="text-secondary glow-green">ONLINE</span>
+            </span>
+        </div>
+    </header>
+
+    <!-- ============================================================
+         MIDDLE ROW — 3 columns
+         ============================================================ -->
+    <div class="flex-1 flex overflow-hidden min-h-0">
+
+        <!-- ========================================================
+             LEFT PANEL — Simulation Config (260px)
+             ======================================================== -->
+        <aside id="panel-left" class="w-[260px] flex-none bg-panel-bg border-r-2 border-primary/60 flex flex-col overflow-y-auto custom-scroll z-30">
+            <div class="p-3 flex flex-col gap-4">
+
+                <!-- ---- Scenario Presets ---- -->
+                <section>
+                    <h3 class="pixel-text text-sm text-primary tracking-wider mb-2">SCENARIO PRESETS</h3>
+                    <div class="flex flex-col gap-1.5">
+                        <button class="btn-scenario active" data-scenario="normal">Normal Flow</button>
+                        <button class="btn-scenario"        data-scenario="mixed">Mixed Attack</button>
+                        <button class="btn-scenario"        data-scenario="storm">Coordinated Storm</button>
+                    </div>
+                </section>
+
+                <div class="section-line"></div>
+
+                <!-- ---- Fraud Type Toggles ---- -->
+                <section>
+                    <h3 class="pixel-text text-sm text-primary tracking-wider mb-2">FRAUD TYPES</h3>
+                    <div class="flex flex-col gap-2 text-sm">
+                        <label class="flex items-center gap-2.5 cursor-pointer hover:text-primary transition-colors">
+                            <input type="checkbox" class="chk-custom" checked data-fraud="wash_trading" />
+                            <span>Wash Trading</span>
+                        </label>
+                        <label class="flex items-center gap-2.5 cursor-pointer hover:text-primary transition-colors">
+                            <input type="checkbox" class="chk-custom" checked data-fraud="spoofing" />
+                            <span>Spoofing</span>
+                        </label>
+                        <label class="flex items-center gap-2.5 cursor-pointer hover:text-primary transition-colors">
+                            <input type="checkbox" class="chk-custom"         data-fraud="bonus_abuse" />
+                            <span>Bonus Abuse</span>
+                        </label>
+                        <label class="flex items-center gap-2.5 cursor-pointer hover:text-primary transition-colors">
+                            <input type="checkbox" class="chk-custom"         data-fraud="structuring" />
+                            <span>Structuring</span>
+                        </label>
+                        <label class="flex items-center gap-2.5 cursor-pointer hover:text-primary transition-colors">
+                            <input type="checkbox" class="chk-custom" checked data-fraud="velocity_abuse" />
+                            <span>Velocity Abuse</span>
+                        </label>
+                    </div>
+                </section>
+
+                <div class="section-line"></div>
+
+                <!-- ---- Fraud Rate Slider ---- -->
+                <section>
+                    <h3 class="pixel-text text-sm text-primary tracking-wider mb-1">FRAUD RATE</h3>
+                    <div class="flex items-center justify-between text-xs text-white/50 mb-1">
+                        <span>10%</span>
+                        <span id="fraud-rate-val" class="text-primary font-bold text-sm">35%</span>
+                        <span>60%</span>
+                    </div>
+                    <input type="range" id="fraud-rate" min="10" max="60" value="35" step="5" />
+                </section>
+
+                <!-- ---- TPS Slider ---- -->
+                <section>
+                    <h3 class="pixel-text text-sm text-primary tracking-wider mb-1">TRANSACTIONS / SEC</h3>
+                    <div class="flex items-center justify-between text-xs text-white/50 mb-1">
+                        <span>0.5</span>
+                        <span id="tps-val" class="text-primary font-bold text-sm">2.5</span>
+                        <span>5.0</span>
+                    </div>
+                    <input type="range" id="tps" min="0.5" max="5.0" value="2.5" step="0.5" />
+                </section>
+
+                <div class="section-line"></div>
+
+                <!-- ---- Start / Stop ---- -->
+                <section class="flex flex-col gap-2">
+                    <button id="btn-start" class="btn-primary w-full pixel-text text-lg tracking-wider">START SIMULATION</button>
+                    <button id="btn-stop"  class="btn-stop   w-full pixel-text text-lg tracking-wider">STOP</button>
+                </section>
+
+                <div class="section-line"></div>
+
+                <!-- ---- Performance Metrics ---- -->
+                <section>
+                    <h3 class="pixel-text text-sm text-primary tracking-wider mb-2">PERFORMANCE</h3>
+                    <div class="flex flex-col gap-3 text-sm">
+
+                        <!-- Throughput -->
+                        <div>
+                            <div class="flex justify-between mb-1">
+                                <span class="text-white/60">Throughput</span>
+                                <span id="metric-tps" class="text-secondary font-bold">2.3 TPS</span>
+                            </div>
+                        </div>
+
+                        <!-- False Positive Rate -->
+                        <div>
+                            <div class="flex justify-between mb-1">
+                                <span class="text-white/60">False Positive</span>
+                                <span id="metric-fpr" class="text-primary font-bold">11.2%</span>
+                            </div>
+                            <div class="bar-track"><div id="bar-fpr" class="bar-fill bar-amber" style="width:11.2%"></div></div>
+                        </div>
+
+                        <!-- Precision -->
+                        <div>
+                            <div class="flex justify-between mb-1">
+                                <span class="text-white/60">Precision</span>
+                                <span id="metric-prec" class="text-secondary font-bold">89%</span>
+                            </div>
+                            <div class="bar-track"><div id="bar-prec" class="bar-fill bar-green" style="width:89%"></div></div>
+                        </div>
+
+                        <!-- Recall -->
+                        <div>
+                            <div class="flex justify-between mb-1">
+                                <span class="text-white/60">Recall</span>
+                                <span id="metric-recall" class="text-secondary font-bold">72%</span>
+                            </div>
+                            <div class="bar-track"><div id="bar-recall" class="bar-fill bar-green" style="width:72%"></div></div>
+                        </div>
+
+                    </div>
+                </section>
+
+            </div>
+        </aside>
+
+        <!-- ========================================================
+             CENTER — Canvas (flex-1)
+             ======================================================== -->
+        <main class="flex-1 relative min-w-0 crt-overlay">
+
+            <!-- The canvas element — JS engine draws here -->
+            <canvas id="greenhouse-canvas" class="w-full h-full"></canvas>
+
+            <!-- Bottom status bar (overlay) -->
+            <div id="canvas-status" class="absolute bottom-0 left-0 right-0 bg-deep-space/85 border-t-2 border-scanner/60 px-4 py-2 pixel-text text-sm text-scanner z-30 backdrop-blur-sm">
+                DEFENSE GRID ACTIVE &mdash; Analyzing order flow
+            </div>
+
+            <!-- Brain pulse notification (overlay, hidden by default — JS shows on retrain) -->
+            <div id="brain-pulse" class="brain-pulse pixel-text text-secondary glow-green z-40">
+                &#129504; DEFENSE UPGRADED &mdash; Accuracy <span id="brain-from">72%</span> &rarr; <span id="brain-to">89%</span>
+            </div>
+
+        </main>
+
+        <!-- ========================================================
+             RIGHT PANEL — Garden Intelligence (300px)
+             ======================================================== -->
+        <aside id="panel-right" class="w-[300px] flex-none bg-panel-bg border-l-2 border-primary/60 flex flex-col overflow-y-auto custom-scroll z-30">
+            <div class="p-3 flex flex-col gap-4">
+
+                <!-- ---- Header ---- -->
+                <div class="pb-1 border-b border-primary/30">
+                    <h2 class="pixel-text text-lg text-primary glow-amber tracking-wider">GARDEN INTELLIGENCE</h2>
+                </div>
+
+                <!-- ---- Active Alert Card ---- -->
+                <div id="alert-card" class="pixel-border bg-deep-space p-3">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-danger font-bold pixel-text tracking-wide">&#9888; PATTERN MATCH</span>
+                        <span class="text-xs text-scanner">98% conf</span>
+                    </div>
+                    <div class="text-sm space-y-1">
+                        <div class="flex justify-between">
+                            <span class="text-white/40">Pod:</span>
+                            <span class="text-primary" id="alert-pod">TXN-7f3a</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-white/40">Pattern:</span>
+                            <span class="text-danger" id="alert-pattern">Wash Ring</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-white/40">Risk:</span>
+                            <span class="text-danger font-bold" id="alert-risk">CRITICAL</span>
+                        </div>
+                    </div>
+                    <p class="mt-2 text-xs text-white/40" id="alert-detail">Detected circular flow: A&#8594;B&#8594;C&#8594;A in 47 sec</p>
+                    <!-- Mini spark-line placeholder (SVG drawn by JS or static) -->
+                    <div class="mt-2 h-10 bg-deep-space/60 border border-danger/20 rounded-sm overflow-hidden">
+                        <svg class="w-full h-full" preserveAspectRatio="none" viewBox="0 0 120 40">
+                            <path d="M0,35 L12,32 L24,38 L36,18 L48,34 L60,5 L72,30 L84,36 L96,33 L108,35 L120,34" fill="none" stroke="#ef4444" stroke-width="2" vector-effect="non-scaling-stroke"/>
+                        </svg>
+                    </div>
+                </div>
+
+                <div class="section-line"></div>
+
+                <!-- ---- Inspection Queue ---- -->
+                <section>
+                    <h3 class="pixel-text text-sm text-primary tracking-wider mb-2">INSPECTION QUEUE</h3>
+                    <div id="inspection-queue" class="flex flex-col gap-2">
+
+                        <!-- Queue item 1 -->
+                        <div class="queue-item" data-pod="TXN-7f3a">
+                            <div class="flex justify-between items-center mb-1">
+                                <span class="pixel-text text-xs text-danger">TXN-7f3a</span>
+                                <span class="text-xs text-danger font-bold">98</span>
+                            </div>
+                            <div class="bar-track mb-1.5"><div class="bar-fill bar-red" style="width:98%"></div></div>
+                            <div class="text-xs text-white/40 mb-2">Wash Trading</div>
+                            <div class="flex gap-2">
+                                <button class="btn-action" data-action="clear">&#9989; CLEAR</button>
+                                <button class="btn-action" data-action="investigate">&#128270; INVESTIGATE</button>
+                            </div>
+                        </div>
+
+                        <!-- Queue item 2 -->
+                        <div class="queue-item" data-pod="TXN-4b21">
+                            <div class="flex justify-between items-center mb-1">
+                                <span class="pixel-text text-xs text-primary">TXN-4b21</span>
+                                <span class="text-xs text-primary font-bold">67</span>
+                            </div>
+                            <div class="bar-track mb-1.5"><div class="bar-fill bar-amber" style="width:67%"></div></div>
+                            <div class="text-xs text-white/40 mb-2">Velocity Abuse</div>
+                            <div class="flex gap-2">
+                                <button class="btn-action" data-action="clear">&#9989; CLEAR</button>
+                                <button class="btn-action" data-action="investigate">&#128270; INVESTIGATE</button>
+                            </div>
+                        </div>
+
+                        <!-- Queue item 3 -->
+                        <div class="queue-item" data-pod="TXN-9c8d">
+                            <div class="flex justify-between items-center mb-1">
+                                <span class="pixel-text text-xs text-primary">TXN-9c8d</span>
+                                <span class="text-xs text-primary font-bold">54</span>
+                            </div>
+                            <div class="bar-track mb-1.5"><div class="bar-fill bar-amber" style="width:54%"></div></div>
+                            <div class="text-xs text-white/40 mb-2">Spoofing</div>
+                            <div class="flex gap-2">
+                                <button class="btn-action" data-action="clear">&#9989; CLEAR</button>
+                                <button class="btn-action" data-action="investigate">&#128270; INVESTIGATE</button>
+                            </div>
+                        </div>
+
+                    </div>
+                </section>
+
+                <div class="section-line"></div>
+
+                <!-- ---- Discovered Patterns ---- -->
+                <section>
+                    <h3 class="pixel-text text-sm text-primary tracking-wider mb-2">DISCOVERED PATTERNS</h3>
+                    <div id="pattern-list" class="flex flex-col gap-1.5">
+                        <div class="pattern-card">
+                            <span class="text-lg flex-none w-6 text-center">&#127754;</span>
+                            <span class="flex-1">Wash Ring</span>
+                            <span class="text-secondary text-xs font-bold">87%</span>
+                        </div>
+                        <div class="pattern-card">
+                            <span class="text-lg flex-none w-6 text-center">&#9889;</span>
+                            <span class="flex-1">Velocity</span>
+                            <span class="text-secondary text-xs font-bold">91%</span>
+                        </div>
+                        <div class="pattern-card">
+                            <span class="text-lg flex-none w-6 text-center">&#127917;</span>
+                            <span class="flex-1">Spoofing</span>
+                            <span class="text-secondary text-xs font-bold">98%</span>
+                        </div>
+                        <div class="pattern-card">
+                            <span class="text-lg flex-none w-6 text-center">&#128260;</span>
+                            <span class="flex-1">Bonus Loop</span>
+                            <span class="text-primary text-xs font-bold">73%</span>
+                        </div>
+                        <div class="pattern-card">
+                            <span class="text-lg flex-none w-6 text-center">&#128202;</span>
+                            <span class="flex-1">Structuring</span>
+                            <span class="text-primary text-xs font-bold">68%</span>
+                        </div>
+                    </div>
+                </section>
+
+                <div class="section-line"></div>
+
+                <!-- ---- Learning Log ---- -->
+                <section>
+                    <h3 class="pixel-text text-sm text-primary tracking-wider mb-2">LEARNING LOG</h3>
+                    <div id="learning-log" class="bg-deep-space border border-primary/20 rounded-sm max-h-[180px] overflow-y-auto custom-scroll text-xs">
+                        <div class="p-2 flex flex-col gap-0.5">
+                            <div class="feed-line text-secondary">&#129504; Defense upgraded &mdash; Accuracy 72% &rarr; 89%</div>
+                            <div class="feed-line text-secondary">&#127793; New pattern: Velocity Cluster</div>
+                            <div class="feed-line text-scanner">&#9989; Pod TXN-4a2f cleared by operator</div>
+                            <div class="feed-line text-primary">&#128202; Retrain triggered: 147 new labels</div>
+                            <div class="feed-line text-secondary">&#129504; Model v1.2.0 deployed &mdash; F1: 0.81</div>
+                            <div class="feed-line text-scanner">&#9989; Pod TXN-3b9f cleared by operator</div>
+                            <div class="feed-line text-secondary">&#127793; Pattern confidence improved: Wash +12%</div>
+                        </div>
+                    </div>
+                </section>
+
+            </div>
+        </aside>
+
+    </div><!-- /middle row -->
+
+    <!-- ============================================================
+         BOTTOM EVENT FEED (96px)
+         ============================================================ -->
+    <footer id="event-feed" class="flex-none h-24 bg-deep-space border-t-2 border-scanner/50 overflow-hidden z-30">
+        <div class="h-full overflow-y-auto custom-scroll px-4 py-2 pixel-text text-xs leading-relaxed">
+            <div class="text-scanner font-bold mb-1 tracking-wider">EVENT FEED</div>
+            <div id="event-lines">
+                <div class="feed-line text-secondary">[23:47:12] Pod TXN-7f3a arrived &mdash; Scan initiated</div>
+                <div class="feed-line text-danger">[23:47:11] Pattern match: Wash Ring (98% confidence)</div>
+                <div class="feed-line text-scanner">[23:47:09] Scan complete: TXN-6d2c &mdash; CLEAR</div>
+                <div class="feed-line text-secondary">[23:47:05] Plant sprouted: Pattern "Velocity Cluster"</div>
+                <div class="feed-line text-primary">[23:47:01] Defense retrain complete &mdash; v1.2.0</div>
+                <div class="feed-line text-scanner">[23:46:58] Pod TXN-4a2f cleared by operator</div>
+                <div class="feed-line text-secondary">[23:46:55] Pod TXN-9c8d arrived &mdash; Scan initiated</div>
+                <div class="feed-line text-white/40">[23:46:52] Garden health check &mdash; All systems nominal</div>
+            </div>
+        </div>
+    </footer>
+
+</div><!-- /root flex container -->
+
+<!--
+    ================================================================
+    INTEGRATION NOTES (for canvas engine & data layer)
+    ================================================================
+
+    CANVAS:
+      - The canvas element is   #greenhouse-canvas
+      - It fills the center column via w-full h-full
+      - On init, read its parent's offsetWidth / offsetHeight and set
+        canvas.width / canvas.height to match (handle resize too).
+      - The canvas background CSS gradient goes from cold (#0a0b14)
+        on the left to warm amber glow on the right — your engine
+        should draw the starfield, pods, defense ring, and greenhouse
+        dome accordingly.
+      - Two overlay elements sit on top:
+          #canvas-status  — bottom status bar (update textContent)
+          #brain-pulse    — hidden notification (toggle display:flex)
+
+    HUD (top bar):
+      - #hud-pods      — pod count
+      - #hud-threats   — threat count
+      - #hud-health    — garden health %
+      - #hud-version   — defense model version
+      - #hud-status    — ONLINE / DEGRADED / OFFLINE
+
+    LEFT PANEL — Simulation Config:
+      - Scenario buttons: data-scenario="normal|mixed|storm"
+        Toggle .active class on click.
+      - Fraud type checkboxes: data-fraud="wash_trading|spoofing|..."
+      - #fraud-rate (range input)  →  update #fraud-rate-val text
+      - #tps         (range input)  →  update #tps-val text
+      - #btn-start / #btn-stop
+      - Metrics to update:
+          #metric-tps, #metric-fpr, #metric-prec, #metric-recall
+          #bar-fpr, #bar-prec, #bar-recall (set style.width)
+
+    RIGHT PANEL — Intelligence:
+      - Alert card: #alert-card
+          #alert-pod, #alert-pattern, #alert-risk, #alert-detail
+      - Inspection queue: #inspection-queue
+          Each .queue-item has data-pod="..."
+          Buttons have data-action="clear|investigate"
+      - Patterns: #pattern-list (append/remove .pattern-card divs)
+      - Learning log: #learning-log (prepend new .feed-line divs)
+
+    BOTTOM:
+      - Event feed: #event-lines (prepend new .feed-line divs)
+        Auto-scroll to top on new entry (or use prepend so newest
+        is always visible).
+
+    COLOR TOKENS (for JS-side canvas drawing):
+      DEEP_SPACE  = "#0a0b14"
+      PANEL_BG    = "#1e293b"
+      AMBER       = "#ffb94f"
+      GREEN       = "#4ade80"
+      RED         = "#ef4444"
+      SCANNER     = "#7ec4cf"
+      GROW_WARM   = "rgba(255,185,79,0.15)"
+
+    ================================================================
+-->
+
+</body>
+</html>

@@ -1,0 +1,89 @@
+%%{ init: { 'theme': 'base', 'themeVariables': { 'primaryColor': '#4F46E5', 'primaryTextColor': '#fff', 'primaryBorderColor': '#3730A3', 'lineColor': '#6366F1', 'secondaryColor': '#F59E0B', 'tertiaryColor': '#10B981', 'background': '#FAFAFA', 'fontSize': '14px' } } }%%
+
+graph TB
+    subgraph INGEST["1 - TRANSACTION INGESTION"]
+        direction LR
+        SIM["Transaction Simulator<br/><i>5 fraud typologies</i><br/><i>1 TPS continuous stream</i>"]
+        API["FastAPI Backend<br/><i>POST /transactions</i><br/><i>Async SQLite</i>"]
+        SIM -->|"JSON payload"| API
+    end
+
+    subgraph SCORE["2 - REAL-TIME RISK SCORING"]
+        direction LR
+        FE["Feature Engine<br/><i>17 features computed</i><br/><i>Velocity + Amount + Temporal</i>"]
+        ML["ML Model<br/><i>GradientBoosting</i><br/><i>scikit-learn</i>"]
+        DEC{"Score<br/>Threshold"}
+        FE -->|"feature vector"| ML
+        ML -->|"probability"| DEC
+    end
+
+    subgraph CASE["3 - AUTONOMOUS CASE MANAGEMENT"]
+        direction LR
+        AUTO["Auto-Case Creator<br/><i>>0.5 = review</i><br/><i>>0.8 = block</i>"]
+        LLM["AI Explainer<br/><i>Llama 3.1:8b</i><br/><i>via Ollama (local)</i>"]
+        AUTO -->|"case opened"| LLM
+    end
+
+    subgraph LEARN["4 - SELF-IMPROVING LOOP"]
+        direction LR
+        ANALYST["Analyst Review<br/><i>Label: fraud / legit</i><br/><i>Streamlit UI</i>"]
+        TRAIN["Model Trainer<br/><i>Retrain on labels</i><br/><i>Versioned models</i>"]
+        METRICS["Metric Tracker<br/><i>Precision / Recall / F1</i><br/><i>Trend over versions</i>"]
+        ANALYST -->|"labels"| TRAIN
+        TRAIN -->|"v0.1→v0.2→v0.3"| METRICS
+    end
+
+    subgraph PATTERNS["5 - GRAPH PATTERN MINING"]
+        direction LR
+        GRAPH["Transaction Graph<br/><i>NetworkX</i><br/><i>sender→receiver edges</i>"]
+        ALGOS["Detection Algorithms<br/><i>Ring detection</i><br/><i>Hub analysis</i><br/><i>Dense subgraphs</i><br/><i>Velocity spikes</i>"]
+        CARDS["Pattern Cards<br/><i>Confidence scored</i><br/><i>Account lists</i>"]
+        GRAPH -->|"graph built"| ALGOS
+        ALGOS -->|"patterns found"| CARDS
+    end
+
+    subgraph STORE["SQLite Database"]
+        DB[("app.db<br/><i>6 tables</i><br/><i>Indexed queries</i><br/><i>WAL mode</i>")]
+    end
+
+    subgraph PROD["Production Path (Future)"]
+        direction LR
+        style PROD stroke-dasharray: 5 5
+        AC["AWS Bedrock<br/>AgentCore Runtime<br/><i>Serverless agent hosting</i><br/><i>MicroVM session isolation</i>"]
+        GW["AgentCore Gateway<br/><i>REST → MCP tools</i>"]
+        MEM["AgentCore Memory<br/><i>Cross-session context</i>"]
+        OBS["Observability<br/><i>OpenTelemetry traces</i>"]
+        AC --- GW
+        AC --- MEM
+        AC --- OBS
+    end
+
+    %% Main flow
+    API -->|"score request"| FE
+    DEC -->|"flagged txn"| AUTO
+    DEC -->|"all results"| DB
+    LLM -->|"explanation"| DB
+    TRAIN -->|"new model"| ML
+    DB -->|"txn history"| GRAPH
+    DB -->|"velocity data"| FE
+    ANALYST -.->|"feedback loop"| ML
+
+    %% Production path link (dashed = future)
+    API -.->|"production deploy"| AC
+
+    %% Styling
+    classDef ingestStyle fill:#3B82F6,stroke:#1D4ED8,color:#fff
+    classDef scoreStyle fill:#8B5CF6,stroke:#6D28D9,color:#fff
+    classDef caseStyle fill:#EF4444,stroke:#B91C1C,color:#fff
+    classDef learnStyle fill:#10B981,stroke:#047857,color:#fff
+    classDef patternStyle fill:#F59E0B,stroke:#B45309,color:#fff
+    classDef storeStyle fill:#6B7280,stroke:#374151,color:#fff
+    classDef prodStyle fill:#1e293b,stroke:#475569,color:#94a3b8,stroke-dasharray: 5 5
+
+    class SIM,API ingestStyle
+    class FE,ML,DEC scoreStyle
+    class AUTO,LLM caseStyle
+    class ANALYST,TRAIN,METRICS learnStyle
+    class GRAPH,ALGOS,CARDS patternStyle
+    class DB storeStyle
+    class AC,GW,MEM,OBS prodStyle

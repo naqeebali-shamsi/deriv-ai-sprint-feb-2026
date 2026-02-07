@@ -1,0 +1,24 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "risk_result.schema.json",
+  "title": "RiskResult",
+  "type": "object",
+  "required": ["txn_id", "risk_score", "flagged", "timestamp"],
+  "properties": {
+    "txn_id": { "type": "string", "format": "uuid" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "risk_score": { "type": "number", "minimum": 0, "maximum": 1 },
+    "flagged": { "type": "boolean" },
+    "threshold_used": { "type": "number", "minimum": 0, "maximum": 1 },
+    "model_version": { "type": "string" },
+    "features": {
+      "type": "object",
+      "additionalProperties": { "type": ["number", "string", "boolean", "null"] }
+    },
+    "matched_patterns": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "additionalProperties": false
+}

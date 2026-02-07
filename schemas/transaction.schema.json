@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "transaction.schema.json",
+  "title": "Transaction",
+  "type": "object",
+  "required": ["amount", "currency", "sender_id", "receiver_id", "txn_type"],
+  "properties": {
+    "txn_id": { "type": "string", "format": "uuid" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "amount": { "type": "number", "minimum": 0 },
+    "currency": { "type": "string", "minLength": 3, "maxLength": 3 },
+    "sender_id": { "type": "string" },
+    "receiver_id": { "type": "string" },
+    "txn_type": { "type": "string", "enum": ["transfer", "deposit", "withdrawal", "payment"] },
+    "channel": { "type": "string", "enum": ["web", "mobile", "api", "branch"] },
+    "ip_address": { "type": ["string", "null"] },
+    "device_id": { "type": ["string", "null"] },
+    "is_fraud_ground_truth": { "type": ["boolean", "null"] },
+    "metadata": { "type": ["object", "null"] }
+  },
+  "additionalProperties": false
+}

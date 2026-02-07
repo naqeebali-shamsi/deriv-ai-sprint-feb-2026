@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "analyst_label.schema.json",
+  "title": "AnalystLabel",
+  "type": "object",
+  "required": ["label_id", "case_id", "decision", "labeled_at"],
+  "properties": {
+    "label_id": { "type": "string", "format": "uuid" },
+    "case_id": { "type": "string", "format": "uuid" },
+    "txn_id": { "type": "string", "format": "uuid" },
+    "decision": { "type": "string", "enum": ["fraud", "not_fraud", "needs_info"] },
+    "confidence": { "type": "string", "enum": ["low", "medium", "high"] },
+    "labeled_at": { "type": "string", "format": "date-time" },
+    "labeled_by": { "type": "string" },
+    "notes": { "type": ["string", "null"] },
+    "fraud_type": { "type": ["string", "null"] }
+  },
+  "additionalProperties": false
+}

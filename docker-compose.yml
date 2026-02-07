@@ -1,0 +1,70 @@
+version: "3.8"
+
+services:
+  backend:
+    build: .
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    environment:
+      - BACKEND_HOST=0.0.0.0
+      - BACKEND_PORT=8000
+      - DATABASE_PATH=/app/data/app.db
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - CORS_ORIGINS=*
+      - OLLAMA_URL=${OLLAMA_URL:-http://host.docker.internal:11434}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.1:8b}
+    volumes:
+      - app-data:/app/data
+      - app-models:/app/models
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; r = httpx.get('http://localhost:8000/health', timeout=3); assert r.status_code == 200"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  ui:
+    build: .
+    ports:
+      - "${STREAMLIT_PORT:-8501}:8501"
+    environment:
+      - BACKEND_HOST=backend
+      - BACKEND_PORT=8000
+    command: >
+      python -m streamlit run ui/app.py
+      --server.port 8501
+      --server.headless true
+      --server.address 0.0.0.0
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+  init-db:
+    build: .
+    command: python scripts/init_db.py
+    environment:
+      - DATABASE_PATH=/app/data/app.db
+    volumes:
+      - app-data:/app/data
+    profiles:
+      - setup
+
+  seed-data:
+    build: .
+    command: python scripts/seed_demo.py --count 200
+    environment:
+      - DATABASE_PATH=/app/data/app.db
+      - BACKEND_HOST=backend
+      - BACKEND_PORT=8000
+    depends_on:
+      backend:
+        condition: service_healthy
+    volumes:
+      - app-data:/app/data
+    profiles:
+      - setup
+
+volumes:
+  app-data:
+  app-models:
