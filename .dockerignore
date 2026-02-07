@@ -20,3 +20,11 @@ docs/
 .claude/
 *.md
 !requirements.txt
+# Secrets / keys — never bake into images
+*.pem
+*.pub
+*.key
+# Reports / screenshots
+reports/
+*.png
+*.jpg

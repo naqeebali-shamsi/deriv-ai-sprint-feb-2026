@@ -97,6 +97,19 @@ async def init_db_tables():
                 metrics TEXT NOT NULL
             );
 
+            -- Model state (threshold learning / version tracking)
+            CREATE TABLE IF NOT EXISTS model_state (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                threshold REAL NOT NULL DEFAULT 0.5,
+                model_version TEXT NOT NULL DEFAULT 'v1.0.0',
+                last_trained_at TEXT,
+                training_samples INTEGER DEFAULT 0,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+
+            INSERT OR IGNORE INTO model_state (id, threshold, model_version)
+                VALUES (1, 0.5, 'v1.0.0');
+
             CREATE TABLE IF NOT EXISTS agent_decisions (
                 decision_id TEXT PRIMARY KEY,
                 timestamp TEXT NOT NULL,

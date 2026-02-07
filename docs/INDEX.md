@@ -29,6 +29,7 @@
 | [PITCH_TRANSCRIPT.md](PITCH_TRANSCRIPT.md) | 2-minute pitch script with Q&A crib sheet | Current |
 | [INFOGRAPHIC_PROMPT.md](INFOGRAPHIC_PROMPT.md) | Nanobanaa Pro prompt for generating ByteByteGo-style architecture diagram | Asset |
 | [PRE_DEMO_AUDIT.md](PRE_DEMO_AUDIT.md) | Pre-demo adversarial readiness check | Historical (Feb 5) |
+| [DEMO_HOSTING_GUIDE.md](DEMO_HOSTING_GUIDE.md) | AWS Lightsail deployment guide (LLM enabled) | Current |
 
 ## Assessments & Analysis
 

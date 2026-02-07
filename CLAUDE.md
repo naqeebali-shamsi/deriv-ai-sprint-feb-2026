@@ -189,6 +189,7 @@ Schemas: [`schemas/`](schemas/) (6 JSON contracts — single source of truth).
 Key documents for quick reference:
 - Architecture: [`docs/DESIGN_DECISIONS.md`](docs/DESIGN_DECISIONS.md)
 - Demo script: [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md)
+- Demo hosting: [`docs/DEMO_HOSTING_GUIDE.md`](docs/DEMO_HOSTING_GUIDE.md)
 - QA verdict: [`reports/qa_final_verdict.md`](reports/qa_final_verdict.md)
 - Roadmap: [`.planning/ROADMAP.md`](.planning/ROADMAP.md)
 
@@ -239,14 +240,14 @@ Format: `[YYYY-MM-DD] Context -> Lesson -> Actionable Rule`
   See: [docs/DESIGN_DECISIONS.md](docs/DESIGN_DECISIONS.md) Section 5 (ML Model Design)
 - [2026-02-05] Simulator flaw -> Fraud=$5K-50K, legit=$10-2K is trivially separable -> Add overlapping distributions + 3 fraud typologies.
 - [2026-02-05] Red team finding -> Amount-only detection bypassed by structuring in <5 min -> Velocity features are mandatory.
-- [2026-02-05] Deriv context -> Hackathon is Deriv AI Talent Sprint (derivatives platform) -> Frame fraud as wash trading, spoofing, bonus abuse.
+- [2026-02-05] Deriv context -> Hackathon is Drishpex (derivatives platform) -> Frame fraud as wash trading, spoofing, bonus abuse.
 - [2026-02-05] Phase 1 (wire scorer) blocks everything else -> Do this first, no exceptions.
 - [2026-02-05] Demo strategy -> Probability of LLM failure is non-zero -> Implemented "Golden Path" (mocked perfect response for hero transactions) to guarantee 100% demo reliability.
 - [2026-02-06] AWS Bedrock AgentCore evaluation -> 4-specialist panel (Architect/Builder/Demo Director/Red Team) unanimously said SKIP for hackathon -> Stole 3 patterns: streaming LLM, investigation timeline, threshold rationale. Mention AgentCore in Q&A only. Revisit for Phase 7+ after GA.
   See: [docs/DESIGN_DECISIONS.md](docs/DESIGN_DECISIONS.md) Section 6 (LLM Integration)
 - [2026-02-07] Documentation audit -> 14 HIGH-priority undocumented features found, 9 inconsistencies fixed -> Always update docs when code changes; refer to docs/INDEX.md for navigation.
 - [2026-02-07] Naming conventions -> docs/ uses UPPER_SNAKE.md, reports/ uses lower_snake.md -> Follow per-directory naming convention for new files.
-- [2026-02-07] Schema divergence -> init_db.py and backend/db.py have different schemas (model_state table only in init_db.py) -> Investigate and reconcile before production.
+- [2026-02-07] Schema divergence (RESOLVED) -> init_db.py and backend/db.py had different schemas -> Fixed: backend/db.py is now the single source of truth; init_db.py is a thin wrapper.
 - [2026-02-07] Expert review (4-agent audit) -> SSE events only fired from embedded simulator, not from POST /transactions -> Always publish SSE events from the core endpoint, not the caller.
 - [2026-02-07] Bootstrap model recall -> 22% recall when velocity features are all zeros in training data -> bootstrap_model.py must inject synthetic velocity/pattern context; use _inject_velocity_context().
 - [2026-02-07] ML model caching -> reload_model() deleted attributes instead of nulling them, causing AttributeError -> Set _cache = None, never delete function attributes.
@@ -269,6 +270,11 @@ Format: `[YYYY-MM-DD] Context -> Lesson -> Actionable Rule`
 - [2026-02-07] Structuring threshold -> $200-$950 was wrong; BSA threshold is $10,000 -> Fixed to gauss(9500, 300) clamped [5000, 9900].
 - [2026-02-07] Spoofing mismodeled -> Generates completed transfers, not order-place-cancel -> Renamed to "unauthorized_transfer" with realistic amount overlap.
 - [2026-02-07] Adversarial generators stateless -> 3 of 5 used new random IDs per call, no patterns formed -> Added persistent ID pools with circular flows for wash trade, recurring senders for structuring/velocity.
+- [2026-02-07] DB schema divergence (resolved) -> init_db.py and backend/db.py had different tables (model_state vs agent_decisions), different column order, different indexes -> Unified: backend/db.py is now single source of truth; init_db.py is a thin async wrapper. Never duplicate schema definitions.
+- [2026-02-07] init_db.py wrong DB path -> Hardcoded `Path(__file__).parent.parent / "app.db"` ignored DATABASE_PATH env var, wrote to wrong location in Docker -> Fixed by making init_db.py a wrapper around backend.db.init_db_tables() which reads DATABASE_PATH from config.
+- [2026-02-07] Docker infra audit (3-agent team) -> 34 findings: PEM files in Docker image, seed-data can't reach backend, UI healthcheck wrong, .env.example breaks Ollama, Ollama publicly exposed, no non-root user -> All fixed. See docs/DEMO_HOSTING_GUIDE.md for current deployment guide.
+- [2026-02-07] Docker compose setup ordering -> seed-data depended on backend but not bootstrap-model; init-db and backend raced -> Fixed with depends_on chain: init-db -> bootstrap-model -> seed-data (via service_completed_successfully conditions).
+- [2026-02-07] Ollama should NOT be public -> Backend accesses Ollama via Docker internal network (ollama:11434) -> Removed public port mapping from compose and firewall. Never expose LLM endpoints without auth.
 
 ---
 
