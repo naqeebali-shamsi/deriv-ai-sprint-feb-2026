@@ -156,13 +156,15 @@ CLASSIC_CSS = """
 """
 
 
-def fetch_api(endpoint: str, method: str = "GET", json_data: dict | None = None):
+def fetch_api(endpoint: str, method: str = "GET", json_data: dict | None = None,
+              timeout: float | None = None):
     """Fetch data from backend API."""
     try:
         if method == "POST":
-            resp = httpx.post(f"{API_URL}{endpoint}", json=json_data, timeout=10)
+            resp = httpx.post(f"{API_URL}{endpoint}", json=json_data,
+                              timeout=timeout or 10)
         else:
-            resp = httpx.get(f"{API_URL}{endpoint}", timeout=5)
+            resp = httpx.get(f"{API_URL}{endpoint}", timeout=timeout or 5)
         resp.raise_for_status()
         return resp.json()
     except httpx.ConnectError:
@@ -483,6 +485,22 @@ def main():
             auto_refresh = st.toggle("Auto-refresh (5s)", value=False)
         else:
             auto_refresh = False
+        st.divider()
+        # Demo reset — two-click safety (checkbox + button)
+        st.markdown("**Demo Prep**")
+        confirm_reset = st.checkbox("Confirm reset", key="confirm_reset")
+        if st.button("Reset Demo", type="secondary", use_container_width=True,
+                      disabled=not confirm_reset):
+            with st.spinner("Resetting DB + model to bootstrap..."):
+                result = fetch_api("/demo/reset", method="POST", timeout=30)
+            if result and result.get("status") == "reset_complete":
+                st.success(f"Reset to {result.get('model_version', '?')}")
+                time.sleep(1)
+                st.rerun()
+            elif result and result.get("status") == "already_resetting":
+                st.warning("Reset already in progress")
+            else:
+                st.error("Reset failed")
         st.caption("Drishpex 2026")
 
     if view == "Orbital Fortress":

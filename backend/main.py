@@ -1716,102 +1716,123 @@ async def stop_guardian():
 
 
 # --- Demo Reset Endpoint ---
+_reset_lock = asyncio.Lock()
+
+
 @app.post("/demo/reset")
 async def demo_reset():
     """Reset DB + model to bootstrap state for demo preparation.
 
-    Steps: stop simulator → stop guardian → wipe DB → re-init tables →
-    clear models → re-bootstrap → reload scorer → return.
+    Steps: stop simulator → stop guardian → stop miner → wipe DB →
+    re-init tables → clear models → re-bootstrap → reload scorer → return.
     """
-    global _sim_task, _guardian_task
-    steps = []
+    if _reset_lock.locked():
+        return {"status": "already_resetting"}
 
-    # 1. Stop simulator if running
-    if _sim_config["running"]:
-        _sim_config["running"] = False
-        if _sim_task:
-            _sim_task.cancel()
+    async with _reset_lock:
+        global _sim_task, _guardian_task, _mining_task
+        steps = []
+
+        # 1. Stop simulator if running
+        if _sim_config["running"]:
+            _sim_config["running"] = False
+            if _sim_task:
+                _sim_task.cancel()
+                try:
+                    await _sim_task
+                except asyncio.CancelledError:
+                    pass
+                _sim_task = None
+            steps.append("simulator_stopped")
+
+        # 2. Stop guardian if running
+        if _guardian_task and not _guardian_task.done():
+            _guardian_task.cancel()
             try:
-                await _sim_task
-            except asyncio.CancelledError:
+                await asyncio.wait_for(_guardian_task, timeout=5.0)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
                 pass
-            _sim_task = None
-        steps.append("simulator_stopped")
+            _guardian_task = None
+            steps.append("guardian_stopped")
 
-    # 2. Stop guardian if running
-    if _guardian_task and not _guardian_task.done():
-        _guardian_task.cancel()
+        # 3. Stop pattern miner if running
+        if _mining_task and not _mining_task.done():
+            _mining_task.cancel()
+            try:
+                await asyncio.wait_for(_mining_task, timeout=5.0)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
+                pass
+            _mining_task = None
+            steps.append("miner_stopped")
+
+        # 4. Wipe all tables
+        async with get_db() as db:
+            for table in [
+                "transactions", "risk_results", "cases", "analyst_labels",
+                "pattern_cards", "metric_snapshots", "agent_decisions",
+            ]:
+                await db.execute(f"DELETE FROM {table}")  # noqa: S608
+            await db.commit()
+        steps.append("db_wiped")
+
+        # 5. Re-init tables (idempotent, ensures schema is current)
+        await init_db_tables()
+        steps.append("tables_initialized")
+
+        # 6. Clear existing models and re-bootstrap
+        from risk.trainer import MODEL_DIR
+        for path in MODEL_DIR.glob("model_v*.joblib"):
+            path.unlink(missing_ok=True)
+        for path in MODEL_DIR.glob("metrics_v*.json"):
+            path.unlink(missing_ok=True)
+        steps.append("models_cleared")
+
+        # 7. Bootstrap fresh model
+        loop = asyncio.get_running_loop()
+        bootstrap_result = await loop.run_in_executor(None, _run_bootstrap)
+        steps.append(f"bootstrap_{bootstrap_result}")
+
+        # 8. Reload scorer and get new version
+        reload_model()
+        new_version = get_model_version()
+        steps.append(f"scorer_reloaded_{new_version}")
+
+        # 9. Sync model_state table to match bootstrapped version
+        async with get_db() as db:
+            await db.execute(
+                "UPDATE model_state SET threshold=0.5, model_version=?, "
+                "last_trained_at=NULL, training_samples=0, "
+                "updated_at=CURRENT_TIMESTAMP WHERE id=1",
+                (new_version,),
+            )
+            await db.commit()
+        steps.append("model_state_synced")
+
+        # 10. Seed initial metric snapshot
         try:
-            await asyncio.wait_for(_guardian_task, timeout=5.0)
-        except (asyncio.CancelledError, asyncio.TimeoutError):
-            pass
-        _guardian_task = None
-        steps.append("guardian_stopped")
+            metrics_files = sorted(MODEL_DIR.glob("metrics_v*.json"))
+            if metrics_files:
+                metrics_data = json.loads(metrics_files[-1].read_text())
+                async with get_db() as db:
+                    await db.execute(
+                        """INSERT INTO metric_snapshots
+                           (snapshot_id, timestamp, model_version, metrics)
+                           VALUES (?, ?, ?, ?)""",
+                        (str(uuid4()), datetime.utcnow().isoformat(),
+                         new_version, json.dumps(metrics_data)),
+                    )
+                    await db.commit()
+                steps.append("metrics_seeded")
+        except Exception as e:
+            steps.append(f"metrics_seed_error: {e}")
 
-    # 3. Wipe all tables
-    async with get_db() as db:
-        for table in [
-            "transactions", "risk_results", "cases", "analyst_labels",
-            "pattern_cards", "metric_snapshots", "agent_decisions",
-        ]:
-            await db.execute(f"DELETE FROM {table}")  # noqa: S608
-        # Reset model_state to defaults
-        await db.execute(
-            "UPDATE model_state SET threshold=0.5, model_version='v1.0.0', "
-            "last_trained_at=NULL, training_samples=0, "
-            "updated_at=CURRENT_TIMESTAMP WHERE id=1"
-        )
-        await db.commit()
-    steps.append("db_wiped")
-
-    # 4. Re-init tables (idempotent, ensures schema is current)
-    await init_db_tables()
-    steps.append("tables_initialized")
-
-    # 5. Clear existing models and re-bootstrap
-    from risk.trainer import MODEL_DIR
-    for path in MODEL_DIR.glob("model_v*.joblib"):
-        path.unlink(missing_ok=True)
-    for path in MODEL_DIR.glob("metrics_v*.json"):
-        path.unlink(missing_ok=True)
-    steps.append("models_cleared")
-
-    # 6. Bootstrap fresh model
-    loop = asyncio.get_running_loop()
-    bootstrap_result = await loop.run_in_executor(None, _run_bootstrap)
-    steps.append(f"bootstrap_{bootstrap_result}")
-
-    # 7. Reload scorer
-    reload_model()
-    new_version = get_model_version()
-    steps.append(f"scorer_reloaded_{new_version}")
-
-    # 8. Seed initial metric snapshot
-    try:
-        from pathlib import Path as _Path
-        metrics_files = sorted(MODEL_DIR.glob("metrics_v*.json"))
-        if metrics_files:
-            metrics_data = json.loads(metrics_files[-1].read_text())
-            async with get_db() as db:
-                await db.execute(
-                    """INSERT INTO metric_snapshots
-                       (snapshot_id, timestamp, model_version, metrics)
-                       VALUES (?, ?, ?, ?)""",
-                    (str(uuid4()), datetime.utcnow().isoformat(),
-                     new_version, json.dumps(metrics_data)),
-                )
-                await db.commit()
-            steps.append("metrics_seeded")
-    except Exception as e:
-        steps.append(f"metrics_seed_error: {e}")
-
-    logger.info("Demo reset complete: %s", steps)
-    return {
-        "status": "reset_complete",
-        "model_version": new_version,
-        "steps": steps,
-        "timestamp": datetime.utcnow().isoformat(),
-    }
+        logger.info("Demo reset complete: %s", steps)
+        return {
+            "status": "reset_complete",
+            "model_version": new_version,
+            "steps": steps,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
 
 
 def _run_bootstrap() -> str:
