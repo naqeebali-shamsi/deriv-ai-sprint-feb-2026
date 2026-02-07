@@ -545,6 +545,29 @@ async def create_transaction(txn: TransactionIn):
             "timestamp": timestamp,
         })
 
+        # 4. Auto-explain in background (autonomous — no analyst action needed)
+        txn_for_explain = {
+            "txn_id": txn_id,
+            "amount": txn.amount,
+            "currency": txn.currency,
+            "sender_id": txn.sender_id,
+            "receiver_id": txn.receiver_id,
+            "txn_type": txn.txn_type,
+            "channel": txn.channel,
+            "timestamp": timestamp,
+            "metadata": txn.metadata,
+        }
+        asyncio.create_task(_auto_explain_case(
+            case_id=case_id,
+            txn_id=txn_id,
+            txn_data=txn_for_explain,
+            risk_score=risk_result.score,
+            decision=risk_result.decision,
+            features=risk_result.features or {},
+            reasons=risk_result.reasons or [],
+            model_version=risk_result.model_version or "missing",
+        ))
+
     return TransactionOut(
         txn_id=txn_id,
         timestamp=timestamp,
@@ -718,24 +741,33 @@ async def suggested_cases(limit: int = Query(default=10, ge=0, le=1000)):
 
 @app.get("/cases/{case_id}/explain")
 async def explain_case_endpoint(case_id: str):
-    """Generate AI-powered explanation for a flagged case.
+    """Return the AI-generated explanation for a flagged case.
 
-    Uses the fraud agent explainer to produce natural-language analysis
-    of risk factors, behavioral patterns, and recommended actions.
+    Explanations are auto-generated when cases are created (autonomous).
+    This endpoint returns the cached result instantly. If the background
+    task hasn't finished yet, it falls back to on-demand generation.
     """
     async with get_db() as db:
-        # Get case
+        # Get case (including pre-computed explanation)
         cursor = await db.execute(
-            "SELECT txn_id, risk_score, priority FROM cases WHERE case_id = ?",
+            "SELECT txn_id, risk_score, priority, explanation FROM cases WHERE case_id = ?",
             (case_id,),
         )
         case_row = await cursor.fetchone()
         if not case_row:
             raise HTTPException(status_code=404, detail="Case not found")
 
-        txn_id, case_risk_score, priority = case_row
+        txn_id, case_risk_score, priority, cached_explanation = case_row
 
-        # Get transaction
+        # Return cached explanation if available (instant response)
+        if cached_explanation:
+            try:
+                explanation = json.loads(cached_explanation)
+                return {"case_id": case_id, "txn_id": txn_id, **explanation}
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        # Fallback: generate on-demand if background task hasn't completed yet
         cursor = await db.execute(
             """SELECT txn_id, amount, currency, sender_id, receiver_id,
                       txn_type, channel, timestamp, metadata
@@ -758,7 +790,6 @@ async def explain_case_endpoint(case_id: str):
             except (json.JSONDecodeError, TypeError):
                 pass
 
-        # Get risk result (features + reasons)
         cursor = await db.execute(
             "SELECT risk_score, features, matched_patterns, model_version FROM risk_results WHERE txn_id = ?",
             (txn_id,),
@@ -784,7 +815,6 @@ async def explain_case_endpoint(case_id: str):
                     pass
             model_version = risk_row[3] or model_version
 
-        # Determine decision from score
         if risk_score >= THRESHOLDS["block"]:
             decision = "block"
         elif risk_score >= THRESHOLDS["review"]:
@@ -792,7 +822,6 @@ async def explain_case_endpoint(case_id: str):
         else:
             decision = "approve"
 
-        # Get related patterns (check if sender or receiver appears in any pattern)
         cursor = await db.execute(
             "SELECT name, pattern_type, confidence, description FROM pattern_cards WHERE status = 'active' LIMIT 20"
         )
@@ -800,14 +829,12 @@ async def explain_case_endpoint(case_id: str):
             {"name": r[0], "pattern_type": r[1], "confidence": r[2], "description": r[3]}
             for r in await cursor.fetchall()
         ]
-        # Filter to patterns mentioning this sender or receiver
         related_patterns = [
             p for p in all_patterns
             if txn["sender_id"] in (p.get("description") or "")
             or txn["receiver_id"] in (p.get("description") or "")
         ]
 
-    # Generate explanation
     explanation = explain_case(
         txn=txn,
         risk_score=risk_score,

@@ -145,4 +145,13 @@ async def init_db_tables():
             CREATE INDEX IF NOT EXISTS idx_txn_ip_ts
                 ON transactions(ip_address, timestamp);
         """)
+
+        # Schema migration: add explanation column to existing databases
+        try:
+            await db.execute(
+                "ALTER TABLE cases ADD COLUMN explanation TEXT"
+            )
+        except Exception:
+            pass  # Column already exists
+
         await db.commit()

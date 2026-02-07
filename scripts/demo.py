@@ -186,11 +186,11 @@ def main():
     wait_for_backend()
 
     # Step 5: Seed demo data
-    print("\n[5/7] Seeding demo data...")
+    print("\n[5/8] Seeding demo data...")
     run_fg([py, "scripts/seed_demo.py", "--count", "200"], "seed_demo", timeout=300)
 
     # Step 6: Start Streamlit UI
-    print("\n[6/7] Starting UI (Streamlit)...")
+    print("\n[6/8] Starting UI (Streamlit)...")
     run_bg(
         [py, "-m", "streamlit", "run", "ui/app.py",
          "--server.port", "8501", "--server.headless", "true"],
