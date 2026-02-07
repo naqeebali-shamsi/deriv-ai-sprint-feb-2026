@@ -88,7 +88,7 @@ Title: "Autonomous Fraud Detection Agent"
 Key visual: Bold green feedback arrow from "Retrain" back to "ML Model" — the self-improving loop.
 
 Database cylinder (gray) below, connected to all layers.
-Tech stack bar at bottom: Python, FastAPI, Streamlit, scikit-learn, NetworkX, Ollama, SQLite.
+Tech stack bar at bottom: Python, FastAPI, Streamlit, XGBoost, NetworkX, Ollama, SQLite.
 
 Clean rounded rectangles, subtle shadows, white text on colored boxes, labeled arrows, professional font.
 ```

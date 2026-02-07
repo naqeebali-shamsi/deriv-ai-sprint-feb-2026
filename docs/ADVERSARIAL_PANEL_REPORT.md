@@ -38,7 +38,7 @@
 ## UNANIMOUS FINDINGS (All 5 agents agree)
 
 ### 1. No individual component is novel
-Every agent confirmed: GradientBoosting on features is textbook. Networkx graph algorithms are undergraduate material. The LLM reformats pre-computed data. The retraining loop is sklearn's `.fit()`. FICO Falcon has done autonomous scoring since 1992. Featurespace has marketed "self-improving" since 2008.
+Every agent confirmed: XGBoost on features is textbook. Networkx graph algorithms are undergraduate material. The LLM reformats pre-computed data. The retraining loop is XGBoost's `.fit()`. FICO Falcon has done autonomous scoring since 1992. Featurespace has marketed "self-improving" since 2008.
 
 ### 2. The "autonomous agent" claim is the biggest overstatement
 The system has no planning, no tool use, no memory, no goal-directed behavior. "Autonomous" means "runs on a timer." The hardcoded `DEMO_GOLDEN_RESPONSES` and the `generate_hero_transaction()` injected every 25th message are demo theater. The Industry Veteran called it "the single most dishonest claim." The Judge called "we built an autonomous teammate" the biggest lie.
@@ -47,7 +47,7 @@ The system has no planning, no tool use, no memory, no goal-directed behavior. "
 All agents acknowledged: clean module separation, type hints, docstrings, proper error handling, schema contracts, model versioning, hot-swap reloading, WAL-mode SQLite, velocity features from real SQL queries. The Academic Rigorist gave Engineering Quality 6/10 even while scoring Technical Novelty at 1/10.
 
 ### 4. The circular validation problem is severe
-Training on self-generated synthetic data, then claiming F1 of 0.967, is scientifically meaningless. The Academic Rigorist proved only 3 of 17 features carry any weight. The actual saved metrics show F1=0.571 with no improvement across 5 model versions. The simulator's named fraud pools (`ring_a_*`, `smurfer_*`) leak identity through velocity features.
+Training on self-generated synthetic data, then claiming F1 of 0.967, is scientifically meaningless. The Academic Rigorist proved only 3 of 34 features carry significant weight. The actual saved metrics show F1=0.571 with no improvement across 5 model versions. The simulator's named fraud pools (`ring_a_*`, `smurfer_*`) leak identity through velocity features.
 
 ---
 

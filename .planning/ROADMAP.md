@@ -17,12 +17,12 @@
 Make the risk scorer actually score transactions end-to-end. Currently `POST /transactions` stores the transaction but returns `risk_score=None`. After this phase, every transaction gets a real score, and high-risk transactions auto-create cases.
 
 ### Tasks
-- [ ] 1.1 Connect `risk/scorer.py` to `backend/main.py` — call `score_transaction()` inside `create_transaction()`
-- [ ] 1.2 Store risk results in `risk_results` table after scoring
-- [ ] 1.3 Auto-create cases for transactions scoring above threshold (>= 0.5 review, >= 0.8 block)
-- [ ] 1.4 Return real `risk_score` and `decision` in the `TransactionOut` response
-- [ ] 1.5 Update `GET /transactions` to include risk_score from risk_results join
-- [ ] 1.6 Verify end-to-end: POST transaction -> score computed -> risk_result stored -> case created -> visible in UI
+- [x] 1.1 Connect `risk/scorer.py` to `backend/main.py` — call `score_transaction()` inside `create_transaction()`
+- [x] 1.2 Store risk results in `risk_results` table after scoring
+- [x] 1.3 Auto-create cases for transactions scoring above threshold (>= 0.5 review, >= 0.8 block)
+- [x] 1.4 Return real `risk_score` and `decision` in the `TransactionOut` response
+- [x] 1.5 Update `GET /transactions` to include risk_score from risk_results join
+- [x] 1.6 Verify end-to-end: POST transaction -> score computed -> risk_result stored -> case created -> visible in UI
 
 ### Acceptance
 - `POST /transactions` returns a non-null `risk_score`
@@ -40,14 +40,14 @@ Make the risk scorer actually score transactions end-to-end. Currently `POST /tr
 Fix the simulator to generate non-trivially-separable data and add velocity features so the model has to actually work (not just threshold on amount).
 
 ### Tasks
-- [ ] 2.1 Redesign simulator distributions — overlapping amounts (legit can be high, fraud can be low)
-- [ ] 2.2 Add fraud typologies: structuring (many small txns), velocity abuse (rapid-fire), cross-account rings
-- [ ] 2.3 Add Deriv-specific patterns: wash trading, spoofing/layering, bonus abuse
-- [ ] 2.4 Implement velocity features in scorer: txn_count_1h, txn_count_24h, amount_sum_1h per sender
-- [ ] 2.5 Add temporal features: hour_of_day, is_weekend, time_since_last_txn
-- [ ] 2.6 Add amount statistics: z_score_vs_sender_mean, percentile_rank
-- [ ] 2.7 Expand feature set to 10-15 features total
-- [ ] 2.8 Update tests for new simulator patterns and features
+- [x] 2.1 Redesign simulator distributions — overlapping amounts (legit can be high, fraud can be low)
+- [x] 2.2 Add fraud typologies: structuring (many small txns), velocity abuse (rapid-fire), cross-account rings
+- [x] 2.3 Add Deriv-specific patterns: wash trading, spoofing/layering, bonus abuse
+- [x] 2.4 Implement velocity features in scorer: txn_count_1h, txn_count_24h, amount_sum_1h per sender
+- [x] 2.5 Add temporal features: hour_of_day, is_weekend, time_since_last_txn
+- [x] 2.6 Add amount statistics: z_score_vs_sender_mean, percentile_rank
+- [x] 2.7 Expand feature set to 34 features (27 core + 7 pattern-derived)
+- [x] 2.8 Update tests for new simulator patterns and features
 
 ### Acceptance
 - Simulator generates 3+ distinct fraud typologies
@@ -78,7 +78,7 @@ Implement the learning loop: train a real model on labeled data, retrain periodi
 - [ ] 3.10 Handle cold start: use rule-based scoring until enough labels exist (min ~50 per class)
 
 ### Acceptance
-- A real sklearn model is trained and used for scoring
+- A real XGBoost model is trained and used for scoring
 - Metrics endpoint returns real precision/recall/F1
 - After N analyst labels + retrain, metrics visibly improve
 - Model version increments on retrain

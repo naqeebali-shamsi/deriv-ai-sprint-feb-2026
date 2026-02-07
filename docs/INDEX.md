@@ -50,7 +50,7 @@
 | Report | Description |
 |--------|-------------|
 | [qa_final_verdict.md](../reports/qa_final_verdict.md) | Consolidated verdict: CONDITIONAL PASS (150+ tests, 22 vulnerabilities) |
-| [qa_api_test_report.md](../reports/qa_api_test_report.md) | 19 endpoints, 68 test cases, 3 critical bugs |
+| [qa_api_test_report.md](../reports/qa_api_test_report.md) | 21 endpoints, 78 test cases, 8 bugs found (3 critical) |
 | [qa_claims_verification.md](../reports/qa_claims_verification.md) | 24 claims checked: 58% fully accurate, 42% inaccurate |
 | [qa_ml_pipeline_report.md](../reports/qa_ml_pipeline_report.md) | Feature computation, retraining, model versioning tests |
 | [qa_red_team_report.md](../reports/qa_red_team_report.md) | 9 adversarial phases, 14 vulnerabilities, 4 critical |
