@@ -415,9 +415,9 @@ def render_metrics_trend():
     importance = latest.get("feature_importance", {})
     if importance:
         st.markdown("**Top Feature Importances**")
-        # Filter out NaN/Inf values before charting
+        # Filter out NaN/Inf/zero values to avoid Vega-Lite extent warnings
         clean = {k: v for k, v in importance.items()
-                 if isinstance(v, (int, float)) and not (v != v) and abs(v) != float("inf")}
+                 if isinstance(v, (int, float)) and v > 0 and v == v and abs(v) != float("inf")}
         if clean:
             imp_df = pd.DataFrame(sorted(clean.items(), key=lambda x: -x[1])[:8],
                                   columns=["Feature", "Importance"])
