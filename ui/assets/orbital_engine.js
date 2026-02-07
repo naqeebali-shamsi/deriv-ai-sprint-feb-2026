@@ -1,10 +1,10 @@
 // ============================================================================
-// OrbitalEngine.js -- Canvas Animation Engine for Orbital Greenhouse UI
+// OrbitalEngine.js -- Canvas Animation Engine for Orbital Fortress UI
 // ============================================================================
 // Drives the 3-zone fraud detection canvas:
 //   Left   ~25%  Defense Grid   (scanning rings, pod analysis)
 //   Middle ~40%  Transit Zone   (pods fly on Bezier curves)
-//   Right  ~35%  Greenhouse     (cleared pods become growing plants)
+//   Right  ~35%  Fortress       (cleared pods become defense turrets)
 //
 // Depends on PixelSprites (global) for all drawing primitives.
 // ============================================================================
@@ -13,12 +13,12 @@ const OrbitalEngine = (() => {
   const PS = typeof PixelSprites !== 'undefined' ? PixelSprites : null;
   const C  = PS ? PS.colors : {};
 
-  const PETAL_COLORS = [
-    '#e06060', '#9b6dff', '#ffd700', '#f0a0c0', '#7ec4cf', '#4ade80',
+  const SHIELD_COLORS = [
+    '#00e5ff', '#1e88e5', '#80f0ff', '#40c4ff', '#7ec4cf', '#4ade80',
   ];
 
   const MAX_PODS   = 50;
-  const MAX_PLANTS = 20;
+  const MAX_DEFENSES = 20;
 
   // Duration constants (seconds)
   const SPAWN_DUR   = 2.0;
@@ -28,7 +28,7 @@ const OrbitalEngine = (() => {
   const CLEAR_DUR   = 1.5;
   const LAND_DUR    = 0.6;
   const BRAIN_DUR   = 1.5;
-  const PLANT_GROW  = 15.0;
+  const DEFENSE_BUILD  = 15.0;
 
   // --------------------------------------------------------------------------
   // Helpers
@@ -94,10 +94,10 @@ const OrbitalEngine = (() => {
         defenseX:     w * 0.22,
         defenseY:     h * 0.45,
         defenseR:     Math.min(w, h) * 0.18,
-        greenhouseX:  w * 0.78,
-        greenhouseY:  h * 0.55,
-        greenhouseW:  w * 0.30,
-        greenhouseH:  h * 0.45,
+        fortressX:  w * 0.78,
+        fortressY:  h * 0.55,
+        fortressW:  w * 0.30,
+        fortressH:  h * 0.45,
       };
     }
 
@@ -170,10 +170,10 @@ const OrbitalEngine = (() => {
         pod.progress  = 0;
         pod.spawnTime = this.time;
 
-        // Bezier toward greenhouse
+        // Bezier toward fortress
         const L  = this.layout;
-        pod.targetX = L.greenhouseX;
-        pod.targetY = L.greenhouseY + L.greenhouseH * 0.3;
+        pod.targetX = L.fortressX;
+        pod.targetY = L.fortressY + L.fortressH * 0.3;
         pod.controlPoints = [{
           x: (pod.x + pod.targetX) * 0.5,
           y: pod.y - L.defenseR * 0.5 * (0.5 + Math.random()),
@@ -182,27 +182,32 @@ const OrbitalEngine = (() => {
       }
     }
 
-    addPlant(patternName) {
+    addDefense(patternName) {
       const L    = this.layout;
       const cols = 5;
       const idx  = this.plants.length % (cols * 4);
       const col  = idx % cols;
       const row  = Math.floor(idx / cols);
-      const spacing = L.greenhouseW / (cols + 1);
+      const spacing = L.fortressW / (cols + 1);
 
+      const shieldColor = SHIELD_COLORS[Math.floor(Math.random() * SHIELD_COLORS.length)];
       const plant = {
-        x:           L.greenhouseX - L.greenhouseW * 0.40 + (col + 1) * spacing,
-        y:           L.greenhouseY + L.greenhouseH * 0.35 - row * 28,
+        x:           L.fortressX - L.fortressW * 0.40 + (col + 1) * spacing,
+        y:           L.fortressY + L.fortressH * 0.35 - row * 28,
         stage:       0,
         startTime:   this.time,
         patternName: patternName || 'unknown',
-        petalColor:  PETAL_COLORS[Math.floor(Math.random() * PETAL_COLORS.length)],
+        shieldColor: shieldColor,
+        petalColor:  shieldColor, // backward-compat alias
       };
 
       this.plants.push(plant);
       this.stats.plants = this.plants.length;
       this._enforcePlantLimit();
     }
+
+    // Backward-compat alias (called by OrbitalDataLayer)
+    addPlant(patternName) { return this.addDefense(patternName); }
 
     triggerBrainPulse() {
       const L = this.layout;
@@ -262,7 +267,7 @@ const OrbitalEngine = (() => {
     }
 
     _enforcePlantLimit() {
-      while (this.plants.length > MAX_PLANTS) this.plants.shift();
+      while (this.plants.length > MAX_DEFENSES) this.plants.shift();
     }
 
     // ======================================================================
@@ -353,8 +358,8 @@ const OrbitalEngine = (() => {
           case 'landing': {
             p.progress = clamp(elapsed / LAND_DUR, 0, 1);
             if (p.progress >= 1) {
-              // Convert to plant
-              this.addPlant(p.metadata.fraud_type || p.metadata.txn_type || 'trade');
+              // Convert to defense turret
+              this.addDefense(p.metadata.fraud_type || p.metadata.txn_type || 'trade');
               // Landing burst effect
               this.effects.push({
                 type:      'landing',
@@ -370,10 +375,10 @@ const OrbitalEngine = (() => {
         }
       }
 
-      // --- Plants: advance growth stage ---
+      // --- Defenses: advance build stage ---
       for (const plant of this.plants) {
         const age = this.time - plant.startTime;
-        plant.stage = clamp(Math.floor((age / PLANT_GROW) * 4), 0, 3);
+        plant.stage = clamp(Math.floor((age / DEFENSE_BUILD) * 4), 0, 3);
       }
 
       // --- Clean up expired brain pulses and effects ---
@@ -411,17 +416,18 @@ const OrbitalEngine = (() => {
         time:       this.time,
       });
 
-      // 4. Greenhouse dome
-      PS.drawGreenhouseDome(ctx, L.greenhouseX, L.greenhouseY, L.greenhouseW, L.greenhouseH, {
+      // 4. Fortress dome
+      PS.drawFortressDome(ctx, L.fortressX, L.fortressY, L.fortressW, L.fortressH, {
         time: this.time,
       });
 
-      // 5. Plants
+      // 5. Defense turrets
       const plantSize = clamp(Math.min(w, h) / 300, 1.2, 3);
       for (const plant of this.plants) {
-        PS.drawPlantAtStage(ctx, plant.x, plant.y, plantSize, plant.stage, {
-          time:       this.time,
-          petalColor: plant.petalColor,
+        PS.drawDefenseAtStage(ctx, plant.x, plant.y, plantSize, plant.stage, {
+          time:        this.time,
+          shieldColor: plant.shieldColor,
+          petalColor:  plant.petalColor, // backward-compat
         });
       }
 

@@ -1,5 +1,5 @@
 // ============================================================================
-// OrbitalDataLayer.js -- SSE + REST bridge for Orbital Greenhouse UI
+// OrbitalDataLayer.js -- SSE + REST bridge for Orbital Fortress UI
 // ============================================================================
 // Connects to the FastAPI backend via Server-Sent Events for real-time
 // updates and REST for user actions. Bridges events to the OrbitalEngine
@@ -468,10 +468,58 @@ class OrbitalDataLayer {
 
     // Wire queue buttons
     container.querySelectorAll('[data-action="clear"]').forEach(btn => {
-      btn.onclick = () => this.labelCase(btn.dataset.case, 'not_fraud').catch(console.error);
+      btn.onclick = async () => {
+        const caseId = btn.dataset.case;
+        btn.disabled = true;
+        btn.textContent = '...';
+        try {
+          await this.labelCase(caseId, 'not_fraud');
+          btn.textContent = '\u2713 Cleared';
+          btn.style.color = '#4ade80';
+          btn.style.borderColor = '#4ade80';
+          // Remove from local state
+          this.state.openCases.delete(caseId);
+          this.state.metrics.cases_open = this.state.openCases.size;
+          this.state.metrics.cases_closed++;
+          // Rebuild queue after brief flash
+          setTimeout(() => this._rebuildQueue(), 800);
+        } catch (e) {
+          btn.textContent = '\u2715 Error';
+          btn.style.color = '#ef4444';
+          setTimeout(() => {
+            btn.disabled = false;
+            btn.textContent = '\u2705 CLEAR';
+            btn.style.color = '';
+            btn.style.borderColor = '';
+          }, 1500);
+        }
+      };
     });
     container.querySelectorAll('[data-action="investigate"]').forEach(btn => {
-      btn.onclick = () => this._emit('investigate', { caseId: btn.dataset.case });
+      btn.onclick = async () => {
+        const caseId = btn.dataset.case;
+        btn.disabled = true;
+        btn.textContent = 'Analyzing...';
+        try {
+          const result = await this._get(`/cases/${caseId}/explain`);
+          this._showExplanation(caseId, result);
+          btn.textContent = '\u2713 Done';
+          btn.style.color = '#7ec4cf';
+          setTimeout(() => {
+            btn.disabled = false;
+            btn.textContent = '\uD83D\uDD0E INVESTIGATE';
+            btn.style.color = '';
+          }, 2000);
+        } catch (e) {
+          btn.textContent = '\u2715 Failed';
+          btn.style.color = '#ef4444';
+          setTimeout(() => {
+            btn.disabled = false;
+            btn.textContent = '\uD83D\uDD0E INVESTIGATE';
+            btn.style.color = '';
+          }, 1500);
+        }
+      };
     });
   }
 
@@ -484,7 +532,7 @@ class OrbitalDataLayer {
 
     const icons = {
       graph: '&#127754;', velocity: '&#9889;', statistical: '&#128202;',
-      cluster: '&#128260;', default: '&#127793;',
+      cluster: '&#128260;', default: '&#128737;',
     };
 
     for (const p of items) {
@@ -533,6 +581,34 @@ class OrbitalDataLayer {
     el.style.display = 'flex';
     clearTimeout(this._brainTimer);
     this._brainTimer = setTimeout(() => { el.style.display = 'none'; }, 4000);
+  }
+
+  _showExplanation(caseId, data) {
+    const card = document.querySelector('#alert-card');
+    if (!card) return;
+
+    this._setText('#alert-pod', this._esc((data.txn_id || caseId).slice(0, 12)));
+    this._setText('#alert-pattern', this._esc(data.summary || 'AI Analysis'));
+
+    const score = data.risk_score || data.confidence;
+    this._setText('#alert-risk', score != null ? `${(score * 100).toFixed(0)}%` : '--');
+
+    // Build detail text from available fields
+    let detail = '';
+    if (data.recommendation) detail += data.recommendation;
+    if (data.behavioral_analysis) detail += (detail ? ' | ' : '') + data.behavioral_analysis;
+    if (data.risk_factors && data.risk_factors.length) {
+      detail += (detail ? ' | ' : '') + 'Factors: ' + data.risk_factors.slice(0, 3).join(', ');
+    }
+    this._setText('#alert-detail', this._esc(detail || 'No additional details'));
+
+    this._setText('#alert-conf', this._esc(data.agent || 'fraud-agent'));
+
+    card.style.display = 'block';
+
+    // Auto-hide after 15 seconds
+    clearTimeout(this._alertTimer);
+    this._alertTimer = setTimeout(() => { card.style.display = 'none'; }, 15000);
   }
 
   _capitalize(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, ' ') : ''; }
@@ -636,6 +712,7 @@ class OrbitalDataLayer {
     this._destroyed = true;
     clearTimeout(this._reconnectTimer);
     clearTimeout(this._brainTimer);
+    clearTimeout(this._alertTimer);
     if (this._rafId) cancelAnimationFrame(this._rafId);
     if (this._sse) { this._sse.close(); this._sse = null; }
     this._listeners = {};

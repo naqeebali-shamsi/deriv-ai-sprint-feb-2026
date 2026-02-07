@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8" />
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
-    <title>Orbital Greenhouse — Autonomous Fraud Defense</title>
+    <title>Orbital Fortress — Autonomous Fraud Defense</title>
 
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
@@ -338,7 +338,7 @@
         .chk-custom:hover { border-color: #ffb94f; }
 
         /* ============================================================
-           CANVAS BACKGROUND GRADIENT (space → greenhouse warmth)
+           CANVAS BACKGROUND GRADIENT (space → fortress energy)
            ============================================================ */
         #greenhouse-canvas {
             display: block;
@@ -346,8 +346,8 @@
                 to right,
                 #0a0b14   0%,
                 #0a0b14   65%,
-                rgba(255,185,79,0.04) 85%,
-                rgba(255,185,79,0.08) 100%
+                rgba(0,229,255,0.03) 85%,
+                rgba(0,229,255,0.06) 100%
             );
         }
 
@@ -378,11 +378,11 @@
     <header class="flex-none h-12 pixel-border-green bg-panel-bg/95 px-5 flex items-center justify-between z-40 backdrop-blur-sm">
         <!-- Left cluster -->
         <div class="flex items-center gap-5 pixel-text text-base">
-            <span class="text-lg text-secondary glow-green tracking-wider">&#127793; ORBITAL GREENHOUSE</span>
+            <span class="text-lg text-secondary glow-green tracking-wider">&#128737; ORBITAL FORTRESS</span>
             <span class="text-white/50">|</span>
             <span class="text-white/60">Pods: <span id="hud-pods" class="text-primary font-bold">0</span></span>
             <span class="text-white/60">Threats: <span id="hud-threats" class="text-danger font-bold">0</span></span>
-            <span class="text-white/60">Garden Health: <span id="hud-health" class="text-secondary font-bold">--</span></span>
+            <span class="text-white/60">Fortress Health: <span id="hud-health" class="text-secondary font-bold">--</span></span>
         </div>
         <!-- Right cluster -->
         <div class="flex items-center gap-5 pixel-text text-base">
@@ -552,7 +552,7 @@
 
                 <!-- ---- Header ---- -->
                 <div class="pb-1 border-b border-primary/30">
-                    <h2 class="pixel-text text-lg text-primary glow-amber tracking-wider">GARDEN INTELLIGENCE</h2>
+                    <h2 class="pixel-text text-lg text-primary glow-amber tracking-wider">FORTRESS INTELLIGENCE</h2>
                 </div>
 
                 <!-- ---- Active Alert Card ---- -->
@@ -646,8 +646,8 @@
       - On init, read its parent's offsetWidth / offsetHeight and set
         canvas.width / canvas.height to match (handle resize too).
       - The canvas background CSS gradient goes from cold (#0a0b14)
-        on the left to warm amber glow on the right — your engine
-        should draw the starfield, pods, defense ring, and greenhouse
+        on the left to cyan fortress glow on the right — your engine
+        should draw the starfield, pods, defense ring, and fortress
         dome accordingly.
       - Two overlay elements sit on top:
           #canvas-status  — bottom status bar (update textContent)

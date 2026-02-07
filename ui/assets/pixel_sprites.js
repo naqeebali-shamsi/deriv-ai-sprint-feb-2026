@@ -1,11 +1,11 @@
 // ============================================================================
-// PixelSprites.js -- Orbital Greenhouse Pixel Art Sprite System
+// PixelSprites.js -- Orbital Fortress Pixel Art Sprite System
 // ============================================================================
-// All visual assets for the Orbital Greenhouse fraud detection canvas.
+// All visual assets for the Orbital Fortress fraud detection canvas.
 // Drawn programmatically with Canvas 2D -- zero external images.
 //
-// Aesthetic: Stardew Valley warmth meets Hyper Light Drifter glow.
-// Palette:   Lospec "Cozy" inspired (see PALETTE below).
+// Aesthetic: Sci-fi fortress meets Hyper Light Drifter glow.
+// Palette:   Steel & energy-cyan (see PALETTE below).
 //
 // Every public function signature:
 //   drawXxx(ctx, x, y, size, options)
@@ -29,27 +29,29 @@ const PixelSprites = (() => {
     podBlueDark:    '#4a8899',
     clearGreen:     '#4ade80',
     clearGreenShadow:'#22c55e',
-    plantGreen:     '#5b8c5a',
-    plantGreenLight:'#7dba7b',
-    darkGreen:      '#3a6b3a',
+    steelGray:      '#8a9bb5',
+    steelLight:     '#a8b8cc',
+    steelDark:      '#5a6d82',
     threatRed:      '#ef4444',
     threatRedShadow:'#b91c1c',
     threatRedDark:  '#991b1b',
     amber:          '#ffb94f',
     darkAmber:      '#c98a2e',
     amberLight:     '#ffd080',
-    soilBrown:      '#6b4c2a',
-    darkSoil:       '#4a3420',
-    richSoil:       '#5c3d1e',
-    petalRed:       '#e06060',
-    petalPurple:    '#9b6dff',
-    petalYellow:    '#ffd700',
-    petalPink:      '#f0a0c0',
+    platformDark:   '#3a4a5e',
+    platformDeep:   '#2d3748',
+    platformMid:    '#4a5568',
+    energyCyan:     '#00e5ff',
+    energyBlue:     '#1e88e5',
+    energyBright:   '#80f0ff',
+    energyPulse:    '#40c4ff',
     white:          '#f5f0e1',
     whiteDim:       '#c0b8a4',
-    potTerracotta:  '#b86f50',
-    potShadow:      '#8b5638',
-    potRim:         '#d4956a',
+    platformMetal:  '#6b7b8d',
+    platformShadow: '#4a5568',
+    platformRim:    '#7f8ea0',
+    // Backward-compat aliases for untouched sections (pattern icons)
+    petalPurple:    '#1e88e5',  // -> energyBlue
   });
 
   // --------------------------------------------------------------------------
@@ -465,210 +467,217 @@ const PixelSprites = (() => {
 
 
   // ==========================================================================
-  // 5.  PLANT GROWTH STAGES  (4 frames, each 16x16)
+  // 5.  DEFENSE TURRET STAGES  (4 frames, each 16x16)
   // ==========================================================================
 
-  // -- Shared: terracotta planter pot (bottom of each plant sprite) --
-  function _drawPot(ctx, bx, by, s) {
-    // pot rim
-    pxBatch(ctx, bx, by, s, C.potRim, [
+  // -- Shared: armored metal platform (bottom of each turret sprite) --
+  function _drawPlatform(ctx, bx, by, s) {
+    // platform rim
+    pxBatch(ctx, bx, by, s, C.platformRim, [
       [3,11],[4,11],[5,11],[6,11],[7,11],[8,11],[9,11],[10,11],[11,11],[12,11],
     ]);
-    // pot body
-    pxBatch(ctx, bx, by, s, C.potTerracotta, [
+    // platform body
+    pxBatch(ctx, bx, by, s, C.platformMetal, [
       [4,12],[5,12],[6,12],[7,12],[8,12],[9,12],[10,12],[11,12],
       [4,13],[5,13],[6,13],[7,13],[8,13],[9,13],[10,13],[11,13],
       [5,14],[6,14],[7,14],[8,14],[9,14],[10,14],
     ]);
-    // pot shadow
-    pxBatch(ctx, bx, by, s, C.potShadow, [
+    // platform shadow (right side)
+    pxBatch(ctx, bx, by, s, C.platformShadow, [
       [9,12],[10,12],[11,12],
       [9,13],[10,13],[11,13],
       [9,14],[10,14],
     ]);
-    // soil inside pot
-    pxBatch(ctx, bx, by, s, C.soilBrown, [
+    // energy indicator line at row 11
+    pxBatch(ctx, bx, by, s, C.energyCyan, [
       [5,11],[6,11],[7,11],[8,11],[9,11],[10,11],
     ]);
-    pxBatch(ctx, bx, by, s, C.darkSoil, [
+    pxBatch(ctx, bx, by, s, rgba(C.energyCyan, 0.4), [
       [6,11],[8,11],
     ]);
   }
 
-  // 5a. SEED -- small brown seed with crack, resting on soil in pot
-  function drawPlantSeed(ctx, x, y, size, options) {
+  // 5a. TURRET BASE -- unpowered mount on platform
+  function drawTurretBase(ctx, x, y, size, options) {
     size = size || 1;
     const s = size;
     const bx = x - 8 * s;
     const by = y - 8 * s;
 
-    _drawPot(ctx, bx, by, s);
+    _drawPlatform(ctx, bx, by, s);
 
-    // seed body
-    pxBatch(ctx, bx, by, s, C.darkSoil, [
+    // small 2x2 steel block (unpowered mount)
+    pxBatch(ctx, bx, by, s, C.steelDark, [
       [7,9],[8,9],
       [7,10],[8,10],
     ]);
-    pxBatch(ctx, bx, by, s, C.soilBrown, [
+    pxBatch(ctx, bx, by, s, C.steelGray, [
       [7,9],
     ]);
-    // crack highlight
-    pxBatch(ctx, bx, by, s, C.richSoil, [
-      [8,9],
+    // shadow detail
+    pxBatch(ctx, bx, by, s, C.platformDark, [
+      [8,10],
     ]);
-    // tiny sprout hint (barely visible green dot)
-    pxBatch(ctx, bx, by, s, rgba(C.plantGreen, 0.5), [
+    // dim power dot at row 8 center
+    pxBatch(ctx, bx, by, s, rgba(C.energyCyan, 0.3), [
       [7,8],
     ]);
   }
 
-  // 5b. SPROUT -- thin stem with 2 tiny cotyledon leaves
-  function drawPlantSprout(ctx, x, y, size, options) {
+  // 5b. TURRET ACTIVATING -- antenna rising from platform with energy pulse
+  function drawTurretActivating(ctx, x, y, size, options) {
     size = size || 1;
     options = options || {};
     const s = size;
     const bx = x - 8 * s;
     const by = y - 8 * s;
     const t = options.time || 0;
-    const sway = Math.sin(t * 2) * 0.3;  // gentle sway
 
-    _drawPot(ctx, bx, by, s);
+    _drawPlatform(ctx, bx, by, s);
 
-    // stem
-    pxBatch(ctx, bx, by, s, C.darkGreen, [
-      [7,10],[7,9],[7,8],[7,7],
-    ]);
-
-    // cotyledon leaves (two small rounded leaves)
-    pxBatch(ctx, bx, by, s, C.plantGreen, [
-      [5,7],[6,7],          // left leaf
-      [8,6],[9,6],          // right leaf
-    ]);
-    pxBatch(ctx, bx, by, s, C.plantGreenLight, [
-      [6,7],                // left highlight
-      [8,6],                // right highlight
-    ]);
-  }
-
-  // 5c. PLANT -- fuller bush, 3-4 leaves, small flower bud
-  function drawPlantGrowing(ctx, x, y, size, options) {
-    size = size || 1;
-    options = options || {};
-    const s = size;
-    const bx = x - 8 * s;
-    const by = y - 8 * s;
-
-    _drawPot(ctx, bx, by, s);
-
-    // main stem
-    pxBatch(ctx, bx, by, s, C.darkGreen, [
+    // vertical antenna (rows 5-10)
+    pxBatch(ctx, bx, by, s, C.steelGray, [
       [7,10],[7,9],[7,8],[7,7],[7,6],[7,5],
     ]);
-    // branch stems
-    pxBatch(ctx, bx, by, s, C.darkGreen, [
-      [6,8],[5,7],          // left branch
-      [8,7],[9,6],          // right branch
+
+    // antenna highlight
+    pxBatch(ctx, bx, by, s, C.steelLight, [
+      [7,5],[7,6],
     ]);
 
-    // leaves (bushy)
-    pxBatch(ctx, bx, by, s, C.plantGreen, [
-      [4,7],[5,7],[6,7],              // left cluster
-      [8,6],[9,6],[10,6],             // right cluster
-      [5,5],[6,5],                    // upper left
-      [8,5],[9,5],                    // upper right
-      [4,8],[5,8],                    // lower left
-      [9,7],[10,7],                   // lower right
-    ]);
-    // leaf highlights
-    pxBatch(ctx, bx, by, s, C.plantGreenLight, [
-      [5,7],[6,5],[8,5],[9,6],
-    ]);
-
-    // flower bud
-    pxBatch(ctx, bx, by, s, C.darkAmber, [
-      [7,4],[8,4],
-      [7,3],
-    ]);
-    pxBatch(ctx, bx, by, s, C.amber, [
-      [7,3],
+    // dim energy pulse glow at top
+    const pulseA = 0.3 + Math.sin(t * 3) * 0.15;
+    glow(ctx, bx + 7.5 * s, by + 5 * s, 4 * s, C.energyCyan, pulseA);
+    pxBatch(ctx, bx, by, s, rgba(C.energyCyan, pulseA), [
+      [7,4],
     ]);
   }
 
-  // 5d. BLOOM -- full plant with colorful flower, many leaves
-  function drawPlantBloom(ctx, x, y, size, options) {
+  // 5c. TURRET ONLINE -- active turret with barrel and scanning beam
+  function drawTurretOnline(ctx, x, y, size, options) {
     size = size || 1;
     options = options || {};
     const s = size;
     const bx = x - 8 * s;
     const by = y - 8 * s;
-    const petal = options.petalColor || C.petalRed;
     const t = options.time || 0;
-    const sway = Math.sin(t * 1.5) * 0.15;
 
-    _drawPot(ctx, bx, by, s);
+    _drawPlatform(ctx, bx, by, s);
 
-    // main stem
-    pxBatch(ctx, bx, by, s, C.darkGreen, [
-      [7,10],[7,9],[7,8],[7,7],[7,6],[7,5],[7,4],
+    // wider base (rows 8-10)
+    pxBatch(ctx, bx, by, s, C.steelDark, [
+      [6,10],[7,10],[8,10],[9,10],
+      [6,9],[7,9],[8,9],[9,9],
+      [6,8],[7,8],[8,8],[9,8],
     ]);
-    // branch stems
-    pxBatch(ctx, bx, by, s, C.darkGreen, [
-      [6,9],[5,8],[4,7],
-      [8,8],[9,7],[10,6],
-    ]);
-
-    // full foliage
-    pxBatch(ctx, bx, by, s, C.plantGreen, [
-      [3,8],[4,8],[5,8],[6,8],              // left mid
-      [8,7],[9,7],[10,7],[11,7],            // right mid
-      [4,6],[5,6],[6,6],                    // upper left
-      [8,5],[9,5],[10,5],                   // upper right
-      [3,9],[4,9],[5,9],                    // lower left
-      [9,8],[10,8],[11,8],                  // lower right
-      [5,10],[6,10],                        // base left
-      [8,10],[9,10],                        // base right
-    ]);
-    // leaf highlights
-    pxBatch(ctx, bx, by, s, C.plantGreenLight, [
-      [4,8],[5,6],[6,6],[8,5],[9,5],[4,9],[9,7],[10,7],
-    ]);
-    // leaf shadows (depth)
-    pxBatch(ctx, bx, by, s, C.darkGreen, [
-      [3,9],[11,8],[5,10],[9,10],
+    // base highlight
+    pxBatch(ctx, bx, by, s, C.steelGray, [
+      [6,8],[7,8],[6,9],
     ]);
 
-    // --- FLOWER ---
-    // petals (star/cross arrangement)
-    pxBatch(ctx, bx, by, s, petal, [
-                   [7,0],                        // top
-              [6,1],[7,1],[8,1],                  // upper ring
-         [5,2],[6,2],     [8,2],[9,2],            // mid (gap for center)
-              [5,3],            [9,3],            // sides
-         [5,4],[6,4],     [8,4],[9,4],            // lower ring
+    // barrel extending up (rows 3-7)
+    pxBatch(ctx, bx, by, s, C.steelGray, [
+      [7,7],[8,7],
+      [7,6],[8,6],
+      [7,5],[8,5],
+      [7,4],[8,4],
+      [7,3],[8,3],
     ]);
-    // petal highlight
-    pxBatch(ctx, bx, by, s, rgba(C.white, 0.3), [
-      [6,1],[7,0],
+    // barrel highlight
+    pxBatch(ctx, bx, by, s, C.steelLight, [
+      [7,3],[7,4],[7,5],
     ]);
 
-    // flower center (warm yellow)
-    pxBatch(ctx, bx, by, s, C.petalYellow, [
-      [7,2],[7,3],
+    // scanning beam line from top going right
+    const scanLen = 3 + Math.sin(t * 2) * 1;
+    for (let i = 0; i < scanLen; i++) {
+      const alpha = 0.6 - (i / scanLen) * 0.5;
+      pxBatch(ctx, bx, by, s, rgba(C.energyCyan, alpha), [
+        [9 + i, 3],
+      ]);
+    }
+    // scan source glow
+    glow(ctx, bx + 8.5 * s, by + 3 * s, 3 * s, C.energyCyan, 0.35);
+  }
+
+  // 5d. TURRET FULL POWER -- full defense tower with shield projection
+  function drawTurretFullPower(ctx, x, y, size, options) {
+    size = size || 1;
+    options = options || {};
+    const s = size;
+    const bx = x - 8 * s;
+    const by = y - 8 * s;
+    const shieldColor = options.petalColor || C.energyCyan;
+    const t = options.time || 0;
+
+    _drawPlatform(ctx, bx, by, s);
+
+    // thick base (rows 8-10)
+    pxBatch(ctx, bx, by, s, C.steelDark, [
+      [5,10],[6,10],[7,10],[8,10],[9,10],[10,10],
+      [5,9],[6,9],[7,9],[8,9],[9,9],[10,9],
+      [6,8],[7,8],[8,8],[9,8],
     ]);
-    pxBatch(ctx, bx, by, s, C.amber, [
-      [6,3],[8,3],
+    // base highlights
+    pxBatch(ctx, bx, by, s, C.steelGray, [
+      [5,9],[6,9],[6,8],[7,8],
     ]);
+    // base shadow
+    pxBatch(ctx, bx, by, s, C.platformDark, [
+      [10,10],[10,9],[9,10],
+    ]);
+
+    // barrel (rows 3-7)
+    pxBatch(ctx, bx, by, s, C.steelGray, [
+      [7,7],[8,7],
+      [7,6],[8,6],
+      [7,5],[8,5],
+      [7,4],[8,4],
+      [7,3],[8,3],
+    ]);
+    // barrel highlight
+    pxBatch(ctx, bx, by, s, C.steelLight, [
+      [7,3],[7,4],[7,5],[7,6],
+    ]);
+
+    // muzzle flash at top
+    const flashA = 0.5 + Math.sin(t * 6) * 0.3;
+    pxBatch(ctx, bx, by, s, rgba(C.energyCyan, flashA), [
+      [7,2],[8,2],
+    ]);
+    glow(ctx, bx + 7.5 * s, by + 2 * s, 4 * s, C.energyCyan, flashA * 0.6);
+
+    // shield projection arc above (cyan arc)
+    ctx.save();
+    ctx.strokeStyle = rgba(shieldColor, 0.4 + Math.sin(t * 2) * 0.15);
+    ctx.lineWidth = 1.5 * s;
+    ctx.beginPath();
+    ctx.arc(bx + 7.5 * s, by + 2 * s, 5 * s, Math.PI * 1.1, Math.PI * 1.9);
+    ctx.stroke();
+    ctx.restore();
+
+    // energy particles floating upward
+    const pCount = 6;
+    for (let i = 0; i < pCount; i++) {
+      const angle = (i / pCount) * Math.PI + Math.PI;
+      const dist = 4 * s + Math.sin(t * 3 + i * 1.5) * 2 * s;
+      const epx = bx + 7.5 * s + Math.cos(angle) * dist;
+      const epy = by + 1 * s + Math.sin(angle) * dist * 0.5 - Math.abs(Math.sin(t * 2 + i)) * 2 * s;
+      const pa = 0.3 + Math.sin(t * 4 + i * 2) * 0.2;
+      ctx.fillStyle = rgba(shieldColor, pa);
+      ctx.fillRect(Math.round(epx), Math.round(epy), Math.ceil(s * 0.8), Math.ceil(s * 0.8));
+    }
   }
 
 
   // ==========================================================================
-  // 6.  GREENHOUSE DOME
+  // 6.  FORTRESS DOME (Energy Shield)
   // ==========================================================================
   //
-  //  Semi-circular dome with glass panel grid, amber grow-light,
-  //  warm interior gradient.  Drawn behind the plants.
+  //  Semi-circular dome with energy shield segments, cyan glow,
+  //  shield generator at apex.  Drawn behind the turrets.
   //
-  function drawGreenhouseDome(ctx, x, y, width, height, options) {
+  function drawFortressDome(ctx, x, y, width, height, options) {
     options = options || {};
     const time = options.time || 0;
     ctx.save();
@@ -677,33 +686,33 @@ const PixelSprites = (() => {
     const domeH = height * 0.45;
     const baseY = y + height * 0.5;
 
-    // --- warm interior glow ---
+    // --- cyan interior glow ---
     const interiorGrad = ctx.createRadialGradient(x, baseY - domeH * 0.3, 0, x, baseY - domeH * 0.3, domeW);
-    interiorGrad.addColorStop(0, rgba(C.amber, 0.15));
-    interiorGrad.addColorStop(0.5, rgba(C.amber, 0.06));
+    interiorGrad.addColorStop(0, rgba(C.energyCyan, 0.12));
+    interiorGrad.addColorStop(0.5, rgba(C.energyCyan, 0.04));
     interiorGrad.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = interiorGrad;
     ctx.beginPath();
     ctx.ellipse(x, baseY, domeW, domeH, 0, Math.PI, 0, true);
     ctx.fill();
 
-    // --- dome outline ---
-    ctx.strokeStyle = rgba(C.spaceBlue, 0.5);
+    // --- dome outline (energy shield) ---
+    ctx.strokeStyle = rgba(C.energyCyan, 0.5);
     ctx.lineWidth = 3;
     ctx.beginPath();
     ctx.ellipse(x, baseY, domeW, domeH, 0, Math.PI, 0, true);
     ctx.stroke();
 
-    // --- base platform ---
-    ctx.strokeStyle = rgba(C.amber, 0.3);
+    // --- base platform line ---
+    ctx.strokeStyle = rgba(C.energyCyan, 0.3);
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(x - domeW - 10, baseY);
     ctx.lineTo(x + domeW + 10, baseY);
     ctx.stroke();
 
-    // --- glass panel grid (vertical ribs) ---
-    ctx.strokeStyle = rgba(C.spaceBlue, 0.2);
+    // --- energy shield segments (vertical ribs) ---
+    ctx.strokeStyle = rgba(C.energyCyan, 0.15);
     ctx.lineWidth = 1;
     const ribCount = 7;
     for (let i = 0; i < ribCount; i++) {
@@ -717,7 +726,7 @@ const PixelSprites = (() => {
       ctx.stroke();
     }
 
-    // --- glass panel grid (horizontal arcs) ---
+    // --- energy shield segments (horizontal arcs) ---
     for (let i = 1; i <= 3; i++) {
       const frac = i / 4;
       const arcH = domeH * frac;
@@ -727,29 +736,34 @@ const PixelSprites = (() => {
       ctx.stroke();
     }
 
-    // --- grow-light at apex ---
+    // --- shield generator at apex (diamond shape) ---
     const lightY = baseY - domeH;
     const lightPulse = 0.5 + Math.sin(time * 2) * 0.15;
-    glow(ctx, x, lightY, 20, C.amber, lightPulse);
+    glow(ctx, x, lightY, 20, C.energyCyan, lightPulse);
 
-    ctx.fillStyle = C.amber;
+    // diamond shape instead of circle
+    ctx.fillStyle = C.energyCyan;
     ctx.beginPath();
-    ctx.arc(x, lightY, 4, 0, Math.PI * 2);
+    ctx.moveTo(x, lightY - 5);
+    ctx.lineTo(x + 4, lightY);
+    ctx.lineTo(x, lightY + 5);
+    ctx.lineTo(x - 4, lightY);
+    ctx.closePath();
     ctx.fill();
 
-    // light rays downward
-    ctx.strokeStyle = rgba(C.amber, 0.12);
+    // rays upward from shield generator
+    ctx.strokeStyle = rgba(C.energyCyan, 0.12);
     ctx.lineWidth = 1;
-    for (let i = 0; i < 12; i++) {
-      const angle = Math.PI * 0.15 + (i / 11) * Math.PI * 0.7;
+    for (let i = 0; i < 8; i++) {
+      const angle = Math.PI * 1.1 + (i / 7) * Math.PI * 0.8;
       ctx.beginPath();
       ctx.moveTo(x, lightY);
-      ctx.lineTo(x + Math.cos(angle) * domeW * 0.7, lightY + Math.sin(angle) * domeH * 0.8);
+      ctx.lineTo(x + Math.cos(angle) * domeW * 0.5, lightY + Math.sin(angle) * domeH * 0.6);
       ctx.stroke();
     }
 
-    // --- glass sheen (subtle highlight arc) ---
-    ctx.strokeStyle = rgba(C.white, 0.08);
+    // --- shield sheen (subtle highlight arc, cyan tint) ---
+    ctx.strokeStyle = rgba(C.energyCyan, 0.06);
     ctx.lineWidth = 4;
     ctx.beginPath();
     ctx.ellipse(x - domeW * 0.2, baseY, domeW * 0.5, domeH * 0.85, -0.15, Math.PI * 1.2, Math.PI * 1.7, false);
@@ -1154,7 +1168,7 @@ const PixelSprites = (() => {
     ctx.restore();
   }
 
-  // --- Landing burst (when pod lands in greenhouse) ---
+  // --- Landing burst (when pod lands in fortress) ---
   function drawLandingBurst(ctx, x, y, progress, options) {
     options = options || {};
     const maxR = options.maxRadius || 30;
@@ -1237,35 +1251,35 @@ const PixelSprites = (() => {
   }
 
   /**
-   * Draw a plant at a given growth stage (0-3).
-   * stage 0=seed, 1=sprout, 2=growing, 3=bloom
+   * Draw a defense turret at a given stage (0-3).
+   * stage 0=base, 1=activating, 2=online, 3=full power
    */
-  function drawPlantAtStage(ctx, x, y, size, stage, options) {
+  function drawDefenseAtStage(ctx, x, y, size, stage, options) {
     options = options || {};
     switch (stage) {
-      case 0: drawPlantSeed(ctx, x, y, size, options); break;
-      case 1: drawPlantSprout(ctx, x, y, size, options); break;
-      case 2: drawPlantGrowing(ctx, x, y, size, options); break;
-      default: drawPlantBloom(ctx, x, y, size, options); break;
+      case 0: drawTurretBase(ctx, x, y, size, options); break;
+      case 1: drawTurretActivating(ctx, x, y, size, options); break;
+      case 2: drawTurretOnline(ctx, x, y, size, options); break;
+      default: drawTurretFullPower(ctx, x, y, size, options); break;
     }
   }
 
   /**
-   * Draw a full greenhouse scene (dome + multiple plants).
-   * plants: array of { x, y, stage, petalColor }
+   * Draw a full fortress scene (dome + multiple turrets).
+   * turrets: array of { x, y, stage, petalColor }
    */
-  function drawGreenhouseScene(ctx, x, y, width, height, plants, options) {
+  function drawFortressScene(ctx, x, y, width, height, turrets, options) {
     options = options || {};
     const time = options.time || 0;
 
     // dome first (background)
-    drawGreenhouseDome(ctx, x, y, width, height, { time });
+    drawFortressDome(ctx, x, y, width, height, { time });
 
-    // plants on top
-    const plantSize = options.plantSize || 2;
+    // turrets on top
+    const turretSize = options.plantSize || 2;
     const baseY = y + height * 0.5;
-    (plants || []).forEach(p => {
-      drawPlantAtStage(ctx, p.x, baseY - 8 * plantSize, plantSize, p.stage, {
+    (turrets || []).forEach(p => {
+      drawDefenseAtStage(ctx, p.x, baseY - 8 * turretSize, turretSize, p.stage, {
         time,
         petalColor: p.petalColor,
       });
@@ -1293,16 +1307,25 @@ const PixelSprites = (() => {
     // Defense grid
     drawDefenseGrid,
 
-    // Plant sprites (individual stages)
-    drawPlantSeed,
-    drawPlantSprout,
-    drawPlantGrowing,
-    drawPlantBloom,
-    drawPlantAtStage,
+    // Defense turret sprites (individual stages)
+    drawTurretBase,
+    drawTurretActivating,
+    drawTurretOnline,
+    drawTurretFullPower,
+    drawDefenseAtStage,
 
-    // Greenhouse
-    drawGreenhouseDome,
-    drawGreenhouseScene,
+    // Fortress dome
+    drawFortressDome,
+    drawFortressScene,
+
+    // Backward-compat aliases (old botanical names)
+    drawPlantSeed:      drawTurretBase,
+    drawPlantSprout:    drawTurretActivating,
+    drawPlantGrowing:   drawTurretOnline,
+    drawPlantBloom:     drawTurretFullPower,
+    drawPlantAtStage:   drawDefenseAtStage,
+    drawGreenhouseDome: drawFortressDome,
+    drawGreenhouseScene:drawFortressScene,
 
     // Starfield & atmosphere
     drawStarfield,

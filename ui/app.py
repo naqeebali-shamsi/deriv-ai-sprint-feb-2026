@@ -1,6 +1,6 @@
 """Streamlit dashboard for Autonomous Fraud Agent demo.
 
-Primary view: Orbital Greenhouse — immersive HTML5 Canvas with pixel art
+Primary view: Orbital Fortress — immersive HTML5 Canvas with pixel art
 aesthetic, real-time SSE data stream, and full analyst workflow.
 
 Fallback: Classic tabbed dashboard for direct API interaction, case
@@ -29,15 +29,15 @@ ASSETS_DIR = Path(__file__).parent / "assets"
 # PAGE CONFIG
 # =============================================================================
 st.set_page_config(
-    page_title="Orbital Greenhouse | Autonomous Fraud Agent",
-    page_icon="\U0001F331",
+    page_title="Orbital Fortress | Autonomous Fraud Agent",
+    page_icon="\U0001F6E1",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
 
 
 # =============================================================================
-# ORBITAL GREENHOUSE — IMMERSIVE CANVAS UI
+# ORBITAL FORTRESS — IMMERSIVE CANVAS UI
 # =============================================================================
 
 @st.cache_data(ttl=3600)
@@ -51,7 +51,7 @@ def _load_asset(filename: str) -> str:
 
 
 def build_orbital_html(backend_url: str) -> str:
-    """Assemble the Orbital Greenhouse HTML with all JS inlined."""
+    """Assemble the Orbital Fortress HTML with all JS inlined."""
     layout = _load_asset("stitch/code.html")
     sprites = _load_asset("pixel_sprites.js")
     engine = _load_asset("orbital_engine.js")
@@ -93,7 +93,7 @@ def build_orbital_html(backend_url: str) -> str:
           }}
         }});
 
-        console.log('[OG] Orbital Greenhouse initialized', {{ backend: BACKEND_URL }});
+        console.log('[OF] Orbital Fortress initialized', {{ backend: BACKEND_URL }});
       }}
 
       if (document.readyState === 'loading') {{
@@ -114,8 +114,8 @@ def build_orbital_html(backend_url: str) -> str:
     return layout.replace("</body>", scripts_block + "</body>")
 
 
-def render_orbital_greenhouse():
-    """Render the immersive Orbital Greenhouse canvas UI."""
+def render_orbital_fortress():
+    """Render the immersive Orbital Fortress canvas UI."""
     # Hide Streamlit chrome for immersive feel
     st.markdown("""
     <style>
@@ -472,8 +472,8 @@ def render_classic_dashboard():
 # =============================================================================
 def main():
     with st.sidebar:
-        st.markdown("### Orbital Greenhouse")
-        view = st.radio("View", ["Orbital Greenhouse", "Classic Dashboard"],
+        st.markdown("### Orbital Fortress")
+        view = st.radio("View", ["Orbital Fortress", "Classic Dashboard"],
                         index=0, label_visibility="collapsed")
         st.divider()
         st.markdown(f"**Backend:** `{API_URL}`")
@@ -489,8 +489,8 @@ def main():
             auto_refresh = False
         st.caption("Drishpex 2026")
 
-    if view == "Orbital Greenhouse":
-        render_orbital_greenhouse()
+    if view == "Orbital Fortress":
+        render_orbital_fortress()
     else:
         render_classic_dashboard()
         if auto_refresh:
