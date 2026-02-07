@@ -12,7 +12,6 @@ Architecture:
 import httpx
 import time
 from datetime import datetime
-from typing import AsyncIterator
 
 from config import get_settings
 
@@ -21,6 +20,8 @@ _settings = get_settings()
 OLLAMA_URL = _settings.OLLAMA_URL
 OLLAMA_MODEL = _settings.OLLAMA_MODEL
 OLLAMA_TIMEOUT = _settings.OLLAMA_TIMEOUT
+LLM_MULTI_AGENT = _settings.LLM_MULTI_AGENT
+LLM_MULTI_AGENT_ROLES = [r.strip() for r in _settings.LLM_MULTI_AGENT_ROLES if r.strip()]
 
 # --- Cached Pattern Responses (high-confidence known scenarios) ---
 # Pre-computed responses for recognized fraud patterns to ensure instant response times.
@@ -155,6 +156,55 @@ def _call_ollama(prompt: str) -> str | None:
     except Exception:
         pass
     return None
+
+
+def _multi_agent_explain(prompt: str) -> str | None:
+    """Run multiple LLM roles and synthesize a single report."""
+    role_specs = {
+        "behavioral": (
+            "Behavioral Analyst",
+            "Focus on velocity, amount patterns, and account behavior."
+        ),
+        "network": (
+            "Network/Pattern Analyst",
+            "Focus on graph patterns, rings, hubs, and shared entities."
+        ),
+        "compliance": (
+            "Compliance Risk Officer",
+            "Focus on regulatory risk, suspicious activity indicators, and actions."
+        ),
+    }
+
+    reports = []
+    for key in LLM_MULTI_AGENT_ROLES:
+        role_name, role_focus = role_specs.get(
+            key, ("Fraud Analyst", "Focus on fraud risk signals and evidence.")
+        )
+        role_prompt = (
+            f"You are the {role_name}. {role_focus}\n\n"
+            "Produce your analysis in EXACTLY the required format.\n\n"
+            f"{prompt}"
+        )
+        response = _call_ollama(role_prompt)
+        if response:
+            reports.append((role_name, response))
+
+    if not reports:
+        return None
+
+    if len(reports) == 1:
+        return reports[0][1]
+
+    synth_inputs = "\n\n".join(
+        f"[{name} Report]\n{report}" for name, report in reports
+    )
+    synth_prompt = (
+        "You are the Lead Fraud Analyst. Combine the agent reports into a single, "
+        "coherent assessment. Resolve conflicts, keep the strongest evidence, and "
+        "return EXACTLY the required format.\n\n"
+        f"{prompt}\n\nAGENT REPORTS:\n{synth_inputs}"
+    )
+    return _call_ollama(synth_prompt)
 
 
 def _call_ollama_stream(prompt: str):
@@ -308,7 +358,7 @@ def explain_case(
     features: dict | None = None,
     reasons: list[str] | None = None,
     patterns: list[dict] | None = None,
-    model_version: str = "v0.0.0-rules",
+    model_version: str = "missing",
 ) -> dict:
     """Generate a natural-language explanation for a flagged case.
 
@@ -361,7 +411,7 @@ def explain_case(
     # 3. Try LLM
     timeline.record("llm_call", f"Querying {OLLAMA_MODEL} via Ollama")
     prompt = _build_llm_prompt(txn, risk_score, decision, features, reasons, patterns, model_version)
-    llm_response = _call_ollama(prompt)
+    llm_response = _multi_agent_explain(prompt) if LLM_MULTI_AGENT else _call_ollama(prompt)
 
     if llm_response:
         timeline.record("llm_response", f"Received {len(llm_response)} chars", "ok")
@@ -374,7 +424,9 @@ def explain_case(
         behavioral = parsed["behavioral_analysis"] or _template_behavior(features, txn.get("sender_id", ""))
         pattern_ctx = parsed["pattern_context"] or _template_patterns(patterns, txn)
         recommendation = parsed["recommendation"] or _template_recommendation(risk_score, decision, risk_factors, pattern_ctx)
-        confidence = parsed["confidence_note"] or _template_confidence(model_version)
+        confidence = parsed["confidence_note"] or _template_confidence(
+            risk_score, patterns
+        )
 
         full_explanation = llm_response
     else:
@@ -386,7 +438,7 @@ def explain_case(
         behavioral = _template_behavior(features, txn.get("sender_id", ""))
         pattern_ctx = _template_patterns(patterns, txn)
         recommendation = _template_recommendation(risk_score, decision, risk_factors, pattern_ctx)
-        confidence = _template_confidence(model_version)
+        confidence = _template_confidence(risk_score, patterns)
 
         full_explanation = _compose_narrative(
             summary, risk_factors, behavioral, pattern_ctx,
@@ -518,11 +570,19 @@ def _template_recommendation(risk_score: float, decision: str, risk_factors: lis
     return "APPROVE -- Risk score is within acceptable range. Continue monitoring."
 
 
-def _template_confidence(model_version: str) -> str:
-    is_ml = "rules" not in model_version
-    if is_ml:
-        return f"Scored by ML model ({model_version}). Explanation confidence: HIGH."
-    return "Scored by rule-based engine. Confidence will improve after model training."
+def _template_confidence(risk_score: float, patterns: list[dict]) -> str:
+    pattern_conf = max([p.get("confidence", 0) for p in patterns], default=0)
+    base = max(risk_score, pattern_conf)
+    if base >= 0.85:
+        level = "HIGH"
+    elif base >= 0.65:
+        level = "MEDIUM"
+    else:
+        level = "LOW"
+    return (
+        f"Confidence: {level} (risk={risk_score:.2f}, "
+        f"pattern={pattern_conf:.2f})."
+    )
 
 
 def _compose_narrative(

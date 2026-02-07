@@ -35,7 +35,7 @@ The system has advanced significantly since the Feasibility Report. The "non-fun
 | Claim | Implementation Status | Adversarial Rating |
 |-------|-----------------------|-------------------|
 | **"Autonomous"** | `risk/explainer.py` (LLM) | ⭐⭐☆☆☆ (Fragile local LLM) |
-| **"Self-Improving"** | `risk/trainer.py` (XGBoost) | ⭐⭐⭐⭐⭐ (Real retraining loop!) |
+| **"Self-Improving"** | `risk/trainer.py` (XGBClassifier) | ⭐⭐⭐⭐⭐ (Real retraining loop!) |
 | **"Pattern Aware"** | `patterns/miner.py` (NetworkX) | ⭐⭐⭐⭐⭐ (Real graph algorithms) |
 | **"Expert Domain"** | `sim/` typologies (Wash trading) | ⭐⭐⭐⭐☆ (Strong domain alignment) |
 

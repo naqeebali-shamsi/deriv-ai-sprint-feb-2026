@@ -10,8 +10,8 @@ graph TB
 
     subgraph SCORE["2 - REAL-TIME RISK SCORING"]
         direction LR
-        FE["Feature Engine<br/><i>17 features computed</i><br/><i>Velocity + Amount + Temporal</i>"]
-        ML["ML Model<br/><i>GradientBoosting</i><br/><i>scikit-learn</i>"]
+        FE["Feature Engine<br/><i>34 features computed</i><br/><i>Velocity + Amount + Temporal + Pattern</i>"]
+        ML["ML Model<br/><i>XGBoost</i><br/><i>L1/L2 regularization + sparse handling</i>"]
         DEC{"Score<br/>Threshold"}
         FE -->|"feature vector"| ML
         ML -->|"probability"| DEC

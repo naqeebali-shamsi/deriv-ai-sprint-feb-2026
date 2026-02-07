@@ -22,8 +22,8 @@ LAYER 1 — INGESTION (Blue #3B82F6):
 
 LAYER 2 — SCORING ENGINE (Purple #8B5CF6):
 - Two stacked boxes:
-  - Top: "Feature Engine" with label "17 features: velocity, amount, temporal, channel"
-  - Bottom: "ML Model" with label "GradientBoosting | scikit-learn | versioned"
+  - Top: "Feature Engine" with label "34 features: velocity, amount, temporal, channel, pattern"
+  - Bottom: "ML Model" with label "XGBoost | L1/L2 regularization + sparse handling | versioned"
 - Arrow between them labeled "feature vector → probability"
 - Small decision diamond: ">0.5 review | >0.8 block"
 - Arrow labeled "risk score" pointing right to Layer 3
@@ -55,7 +55,7 @@ DATABASE (Gray #6B7280):
 
 BOTTOM BAR — Tech Stack:
 - Horizontal strip at the very bottom
-- Logos/text: "Python | FastAPI | Streamlit | scikit-learn | NetworkX | Ollama | SQLite"
+- Logos/text: "Python | FastAPI | Streamlit | XGBoost | NetworkX | Ollama | SQLite"
 
 VISUAL STYLE REQUIREMENTS:
 - ByteByteGo aesthetic: clean, professional, light gray (#FAFAFA) background
@@ -80,7 +80,7 @@ Title: "Autonomous Fraud Detection Agent"
 
 5 color-coded components flowing left to right:
 1. INGESTION (blue): Transaction Simulator → 5 fraud types, 1 TPS stream
-2. SCORING (purple): Feature Engine (17 features) → ML Model (GradientBoosting) → risk score
+2. SCORING (purple): Feature Engine (34 features) → ML Model (XGBoost) → risk score
 3. CASES (red): Auto-Case Creator → AI Explainer (Llama 3.1 local)
 4. LEARNING (green): Analyst labels → Retrain model → Metrics improve (F1: 0.57→0.97)
 5. PATTERNS (amber, below main flow): Graph Mining → Rings, Hubs, Velocity Spikes, Clusters

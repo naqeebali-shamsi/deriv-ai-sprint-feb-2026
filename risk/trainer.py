@@ -1,7 +1,14 @@
 """ML model training for fraud detection.
 
-Trains a GradientBoostingClassifier on labeled transaction data,
+Trains an XGBClassifier on labeled transaction data,
 evaluates performance, and saves versioned models.
+
+Why XGBoost over sklearn GradientBoosting:
+- Built-in L1/L2 regularization (reg_alpha, reg_lambda) prevents overfitting
+- Native sparse data handling — ideal for fraud features with many zeros
+- Better handling of feature interactions without manual engineering
+- Faster training via histogram-based splits
+- Same API surface (sklearn-compatible), drop-in replacement
 """
 import json
 import math
@@ -10,7 +17,7 @@ from pathlib import Path
 
 import joblib
 import numpy as np
-from sklearn.ensemble import GradientBoostingClassifier
+from xgboost import XGBClassifier
 from sklearn.metrics import precision_score, recall_score, f1_score, roc_auc_score
 from sklearn.model_selection import train_test_split
 
@@ -73,7 +80,7 @@ def get_model_version() -> str:
     if latest:
         # Extract version from filename: model_v0.2.0.joblib -> v0.2.0
         return latest.stem.replace("model_", "")
-    return "v0.0.0-rules"
+    return "missing"
 
 
 def load_model():
@@ -174,7 +181,7 @@ def compute_training_features(
 
 
 def train_model(X: np.ndarray, y: np.ndarray, version_bump: str = "minor") -> dict:
-    """Train a GradientBoostingClassifier and save it.
+    """Train an XGBClassifier and save it.
 
     Args:
         X: Feature matrix (n_samples, n_features)
@@ -199,15 +206,18 @@ def train_model(X: np.ndarray, y: np.ndarray, version_bump: str = "minor") -> di
         X, y, test_size=0.2, random_state=42, stratify=y
     )
 
-    # Train GradientBoostingClassifier
-    model = GradientBoostingClassifier(
+    # Train XGBClassifier — chosen for superior regularization and sparse handling
+    model = XGBClassifier(
         n_estimators=100,
         max_depth=4,
         learning_rate=0.1,
-        min_samples_split=5,
-        min_samples_leaf=2,
         subsample=0.8,
+        colsample_bytree=0.8,
+        reg_alpha=0.1,      # L1 regularization — handles sparsity well
+        reg_lambda=1.0,     # L2 regularization — prevents overfitting
+        min_child_weight=2,
         random_state=42,
+        eval_metric="logloss",
     )
     model.fit(X_train, y_train)
 

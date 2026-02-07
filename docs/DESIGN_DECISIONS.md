@@ -31,7 +31,7 @@
 
 **The architecture is directionally sound. The industry validates our approach. We are not novel in any single component — but the combination is genuinely uncommon.**
 
-Every piece we built exists commercially at 100-1000x our scale. GradientBoosting for fraud scoring (Stripe Radar, Feedzai), graph mining for pattern discovery (DataVisor, Neo4j deployments at PayPal), LLM case explanations (Solidus Labs HALO, Nasdaq Surveillance AI), human-in-the-loop retraining (every enterprise platform).
+Every piece we built exists commercially at 100-1000x our scale. XGBoost for fraud scoring (Stripe Radar, Feedzai), graph mining for pattern discovery (DataVisor, Neo4j deployments at PayPal), LLM case explanations (Solidus Labs HALO, Nasdaq Surveillance AI), human-in-the-loop retraining (every enterprise platform).
 
 What no one else demos is the **complete visible loop**: stream → score → case → explain → label → retrain → discover patterns — all running as a single autonomous agent with the learning visible in real-time.
 
@@ -41,8 +41,8 @@ What no one else demos is the **complete visible loop**: stream → score → ca
 
 | Dimension | Hackathon Grade | Production Grade | Key Finding |
 |-----------|----------------|------------------|-------------|
-| ML Model (GBM) | B+ | D | Correct choice for constraints; single model with no ensemble/unsupervised layer |
-| Feature Engineering (17 features) | B | D- | Collected metadata (device, IP, geo) is never used by scorer |
+| ML Model (XGBoost) | B+ | D | Correct choice for constraints; single model with no ensemble/unsupervised layer |
+| Feature Engineering (34 features) | B+ | C | Includes velocity, device/IP reuse, geo risk, card BIN, and pattern-derived features |
 | LLM Integration (llama3.1:8b) | A- | C+ | Architecture is right (explain, don't score); 8B reasoning depth is shallow |
 | Self-Learning Loop | B- | F | Selection bias, no class balancing, no champion-challenger |
 | Graph Mining (networkx) | B+ | F | Algorithmically interesting; doesn't feed back into scoring |
@@ -127,7 +127,7 @@ There are **zero** production-ready open-source fraud detection frameworks for f
 
 | Our Component | Who Does It Better | Gap Size | Our Differentiator |
 |--------------|-------------------|----------|-------------------|
-| ML Scoring (GBM, 17 features) | DataVisor (patented UML), Feedzai (200-500+ features) | Massive | N/A — they're better at this |
+| ML Scoring (GBM, 34 features) | DataVisor (patented UML), Feedzai (200-500+ features) | Large | N/A — they're better at this |
 | Graph Mining (networkx) | Eventus (150K msg/sec), DataVisor (unsupervised clustering) | Large | Pattern cards as UX concept |
 | LLM Case Reasoning | Solidus Labs HALO (May 2025), Nasdaq (2024) | Small-to-moderate | Genuinely early-wave; most systems still use reason codes |
 | Human-in-the-loop Retraining | Every enterprise platform | Moderate | Visibility is the differentiator, not retraining itself |
@@ -143,25 +143,32 @@ The unified "single autonomous agent" narrative is genuinely uncommon. Commercia
 
 ## 5. ML Model: Design Decisions & Tradeoffs
 
-### Decision: GradientBoostingClassifier (scikit-learn)
+### Decision: XGBClassifier (XGBoost)
 
 ```python
-# risk/trainer.py lines 138-146
-model = GradientBoostingClassifier(
+# risk/trainer.py
+model = XGBClassifier(
     n_estimators=100, max_depth=4, learning_rate=0.1,
-    min_samples_split=5, min_samples_leaf=2, subsample=0.8, random_state=42
+    subsample=0.8, colsample_bytree=0.8,
+    reg_alpha=0.1,      # L1 regularization — handles sparsity well
+    reg_lambda=1.0,     # L2 regularization — prevents overfitting
+    min_child_weight=2, random_state=42,
+    eval_metric="logloss", use_label_encoder=False,
 )
 ```
 
-### Why This Is Defensible (Hackathon)
+### Why XGBoost over sklearn GradientBoosting
 
 | Property | Benefit |
 |----------|---------|
+| Built-in L1/L2 regularization (reg_alpha, reg_lambda) | Prevents overfitting without manual tuning |
+| Native sparse data handling | Ideal for fraud features where most values are zero |
+| Better feature interaction handling | Captures complex patterns without manual engineering |
+| Histogram-based splits | Faster training via approximate split finding |
 | Interpretable feature importances | Feeds UI visualization and explainability |
 | `predict_proba` calibration | Usable probability estimates without separate calibration |
-| Mixed feature handling | Handles continuous + binary without preprocessing |
-| Zero infrastructure dependency | No GPU, no CUDA — trains in <1 second on demo data |
-| scikit-learn ecosystem | joblib serialization, standard metrics, no custom loops |
+| sklearn-compatible API | joblib serialization, standard metrics, drop-in replacement |
+| Zero infrastructure dependency | No GPU required — trains in <1 second on demo data |
 
 ### Why This Fails in Production
 
@@ -170,16 +177,16 @@ Production fraud systems use multi-layer ensembles:
 | Layer | Purpose | Technology |
 |-------|---------|-----------|
 | Rules engine | Hard blocks (sanctions, embargoes) | Drools / custom |
-| Supervised model | Primary scoring | XGBoost or LightGBM (not sklearn GBM) |
+| Supervised model | Primary scoring | XGBoost or LightGBM (we use XGBoost) |
 | Unsupervised model | Novelty detection for unknown fraud | Isolation Forest, Autoencoder |
 | Network model | Relationship-based risk | GNN or graph features fed into supervised model |
 | Velocity engine | Real-time rate limiting | Redis counters / Flink |
 
-Our system collapses all five layers into a single GBM. When an adversary deploys a pattern the GBM wasn't trained on, there's no fallback.
+Our system collapses all five layers into a single XGBoost model. When an adversary deploys a pattern the model wasn't trained on, there's no fallback.
 
 ### Feature Engineering: The Critical Gap
 
-**17 features is below the minimum.** Academic literature recommends 30-50; production systems use 200-500+.
+**34 features meets the academic minimum.** Academic literature recommends 30-50; production systems use 200-500+. Our 34-feature set covers amount, velocity, temporal, device/IP, receiver-side, geo, card BIN, and pattern-derived categories.
 
 The most damaging finding: **the simulator generates rich metadata that the scorer never reads.**
 
@@ -199,6 +206,23 @@ meta["card_bin"]         # Card risk — NEVER FEATURIZED
 1. **From existing collected data** (highest ROI, data already flows through): `ip_country_risk`, `device_reuse_count`, `ip_reuse_count`, `session_txn_count`, `card_bin_risk` — 7 features, zero new data collection needed
 2. **Account-level aggregates**: `account_age_days`, `sender_historical_fraud_rate`, `sender_avg_amount`, `sender_amount_stddev`
 3. **Receiver-side features** (complete blind spot today): `receiver_in_degree_24h`, `receiver_total_inflow_24h`, `first_time_counterparty`
+
+### Compulsory ML Scoring (No Rule Fallback)
+We now require a trained ML model for scoring. The rule-based fallback is removed to avoid false confidence and ensure the demo shows true model-driven decisions.
+
+**Operational impact:** the system must bootstrap a baseline model before ingesting live transactions. Use `scripts/bootstrap_model.py` or seed + retrain.
+
+### Confidence Scoring (Demo-Ready)
+For captured cases (review/block), confidence is derived from model probability and pattern evidence:
+
+```
+confidence = max(risk_score, pattern_confidence)
+level = HIGH if confidence >= 0.85
+        MEDIUM if confidence >= 0.65
+        LOW otherwise
+```
+
+This is simple, interpretable, and works for a live demo without calibration infrastructure.
 
 ---
 
@@ -221,6 +245,9 @@ meta["card_bin"]         # Card risk — NEVER FEATURIZED
 1. **Data sovereignty.** Transaction data contains PII. Sending to GPT-4/Claude API without a DPA creates regulatory exposure under GDPR, CCPA, and financial regulations. Local eliminates this.
 2. **Demo reliability.** No internet dependency during live presentation.
 3. **Cost.** $0 per explanation vs $0.01-0.10 via API.
+
+### Multi-Agent Explanations (Optional)
+For deeper reasoning, a multi-agent team can produce parallel analyses (behavioral, network/pattern, compliance) and synthesize a single final report. This improves explanation depth and confidence for the demo at the cost of extra LLM latency.
 
 ### Tradeoff: 8B Parameters Limits Reasoning Depth
 
@@ -282,7 +309,7 @@ Production systems close this loop: graph features (is the sender in a ring? wha
 
 ## 8. Self-Learning Loop: Design Decisions & Tradeoffs
 
-### Decision: Analyst labels → retrain GBM → hot-reload
+### Decision: Analyst labels → retrain XGBoost → hot-reload
 
 The flow works: label case → collect labeled data → train new model → version it → swap into scorer. The demonstrated improvement from F1 0.57 → 0.967 in one retraining cycle is real.
 
@@ -363,7 +390,7 @@ Everything runs in one uvicorn process: FastAPI, ML scoring, graph mining, SSE s
 | Transaction store | SQLite (single file) | PostgreSQL + Citus sharding |
 | Velocity features | 5 SQL queries per request (15-25ms) | Redis Sorted Sets (<1ms) |
 | Event streaming | `list[asyncio.Queue]` | Kafka (days of replay, exactly-once) |
-| ML serving | In-process sklearn | ONNX Runtime / TensorFlow Serving |
+| ML serving | In-process XGBoost | ONNX Runtime / TensorFlow Serving |
 | Graph database | In-memory networkx | Neo4j / TigerGraph |
 | UI push | SSE (100-500 connections) | Centrifugo WebSocket gateway (10K+) |
 | Estimated cost | $0 | $11.5K-$36K/month |

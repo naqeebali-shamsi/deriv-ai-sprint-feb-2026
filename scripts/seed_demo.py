@@ -50,6 +50,9 @@ def seed(api_url: str = "http://localhost:8000", count: int = 200):
                     print(f"  [{i+1}/{count}] sent — "
                           f"{stats['fraud']} fraud, {stats['legit']} legit, "
                           f"{stats['flagged']} flagged")
+            elif resp.status_code == 503:
+                print("  [ERROR] Model missing. Run scripts/bootstrap_model.py first.")
+                break
             else:
                 stats["errors"] += 1
                 if stats["errors"] <= 3:

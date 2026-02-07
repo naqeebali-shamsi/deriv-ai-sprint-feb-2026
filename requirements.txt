@@ -12,6 +12,7 @@ aiosqlite==0.22.1
 
 # ML & Data
 scikit-learn==1.8.0
+xgboost>=2.1.0
 pandas>=2.0.3
 numpy>=1.24.3
 networkx==3.6.1

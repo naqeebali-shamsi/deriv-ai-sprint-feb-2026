@@ -1,17 +1,20 @@
 """FastAPI backend entry point."""
 import json
 import logging
+import math
 import traceback
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
+from typing import Literal
 
+import httpx
 import numpy as np
 
 from config import get_settings
@@ -37,16 +40,26 @@ logger = logging.getLogger("fraud-agent")
 
 # --- Pydantic Models (matching schemas) ---
 class TransactionIn(BaseModel):
-    amount: float
-    currency: str = "USD"
-    sender_id: str
-    receiver_id: str
-    txn_type: str = "transfer"
-    channel: str | None = "web"
-    ip_address: str | None = None
-    device_id: str | None = None
+    amount: float = Field(ge=0, le=1_000_000_000)
+    currency: str = Field(default="USD", max_length=10)
+    sender_id: str = Field(max_length=512)
+    receiver_id: str = Field(max_length=512)
+    txn_type: str = Field(default="transfer", max_length=64)
+    channel: str | None = Field(default="web", max_length=64)
+    ip_address: str | None = Field(default=None, max_length=256)
+    device_id: str | None = Field(default=None, max_length=256)
     is_fraud_ground_truth: bool | None = None
     metadata: dict[str, Any] | None = None
+
+    @field_validator("amount", mode="before")
+    @classmethod
+    def reject_special_floats(cls, v: Any) -> float:
+        """Reject NaN, Infinity, and -Infinity before Pydantic coercion."""
+        if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+            raise ValueError("amount must be a finite number (not NaN or Infinity)")
+        if isinstance(v, bool):
+            raise ValueError("amount must be a number, not a boolean")
+        return v
 
 
 class TransactionOut(BaseModel):
@@ -72,9 +85,9 @@ class CaseOut(BaseModel):
 
 
 class LabelIn(BaseModel):
-    decision: str  # fraud, not_fraud, needs_info
+    decision: Literal["fraud", "not_fraud", "needs_info"]
     confidence: str = "medium"  # low, medium, high
-    labeled_by: str = "analyst_1"
+    labeled_by: str = Field(default="analyst_1", max_length=256)
     fraud_type: str | None = None
     notes: str | None = None
 
@@ -87,7 +100,7 @@ class MetricsOut(BaseModel):
     precision: float | None
     recall: float | None
     f1: float | None = None
-    model_version: str = "v0.0.0-rules"
+    model_version: str = "missing"
 
 
 # --- Lifespan ---
@@ -116,8 +129,14 @@ app.add_middleware(
 
 
 # --- Global Exception Handler ---
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
+    # Let FastAPI handle validation and HTTP errors natively (422, 404, etc.)
+    if isinstance(exc, (RequestValidationError, StarletteHTTPException, HTTPException)):
+        raise exc
     logger.error(f"Unhandled error: {exc}\n{traceback.format_exc()}")
     return JSONResponse(
         status_code=500,
@@ -156,7 +175,7 @@ async def readiness():
     except Exception as e:
         logger.warning(f"DB readiness check failed: {e}")
 
-    checks["model"] = get_model_version() != "unknown"
+    checks["model"] = get_model_version() != "missing"
     all_ready = all(checks.values())
 
     return {
@@ -325,7 +344,13 @@ async def create_transaction(txn: TransactionIn):
             **velocity,
             **pattern_feats,
         }
-        risk_result = score_transaction(txn_dict)
+        try:
+            risk_result = score_transaction(txn_dict)
+        except RuntimeError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=str(exc),
+            ) from exc
         flagged = risk_result.decision != "approve"
 
         # 1. Store transaction
@@ -378,7 +403,7 @@ async def create_transaction(txn: TransactionIn):
 
 
 @app.get("/transactions", response_model=list[TransactionOut])
-async def list_transactions(limit: int = 50):
+async def list_transactions(limit: int = Query(default=50, ge=0, le=1000)):
     """List recent transactions with risk scores."""
     async with get_db() as db:
         cursor = await db.execute(
@@ -406,7 +431,7 @@ async def list_transactions(limit: int = 50):
 
 # --- Cases ---
 @app.get("/cases", response_model=list[CaseOut])
-async def list_cases(status: str | None = None, limit: int = 50):
+async def list_cases(status: str | None = None, limit: int = Query(default=50, ge=0, le=1000)):
     """List cases, optionally filtered by status."""
     async with get_db() as db:
         if status:
@@ -474,7 +499,7 @@ async def label_case(case_id: str, label_in: LabelIn):
 
 
 @app.get("/cases/suggested")
-async def suggested_cases(limit: int = 10):
+async def suggested_cases(limit: int = Query(default=10, ge=0, le=1000)):
     """Return cases sorted by model uncertainty (active learning).
 
     The model identifies transactions where it's least confident
@@ -556,7 +581,7 @@ async def explain_case_endpoint(case_id: str):
         risk_score = case_risk_score or 0
         features = {}
         reasons = []
-        model_version = "v0.0.0-rules"
+        model_version = "missing"
 
         if risk_row:
             risk_score = risk_row[0] or risk_score
@@ -648,7 +673,7 @@ async def explain_case_stream(case_id: str):
 
     features = {}
     reasons = []
-    model_version = "v0.0.0-rules"
+    model_version = "missing"
     if risk_row:
         try:
             features = json.loads(risk_row[0]) if risk_row[0] else {}
@@ -734,7 +759,7 @@ async def retrain_model():
     """Retrain the ML model using analyst-labeled data.
 
     Collects labeled transactions, computes features, trains a
-    GradientBoostingClassifier, and updates the scoring model.
+    XGBClassifier (XGBoost), and updates the scoring model.
     """
     async with get_db() as db:
         # Get all labeled transactions with their features
@@ -908,7 +933,7 @@ async def trigger_mining():
 
 # --- Pattern Cards ---
 @app.get("/metric-snapshots")
-async def list_metric_snapshots(limit: int = 20):
+async def list_metric_snapshots(limit: int = Query(default=20, ge=0, le=1000)):
     """List metric snapshots (for trend charts)."""
     async with get_db() as db:
         cursor = await db.execute(
@@ -935,7 +960,7 @@ async def list_metric_snapshots(limit: int = 20):
 
 
 @app.get("/patterns")
-async def list_patterns(limit: int = 20):
+async def list_patterns(limit: int = Query(default=20, ge=0, le=1000)):
     """List discovered pattern cards."""
     async with get_db() as db:
         cursor = await db.execute(

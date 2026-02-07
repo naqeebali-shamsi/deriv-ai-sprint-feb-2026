@@ -1,8 +1,6 @@
 """Risk scoring module with expanded feature engineering.
 
-Supports two modes:
-1. Rule-based (weighted features) — used before enough labels exist
-2. ML-based (GradientBoostingClassifier) — used after training
+Requires a trained ML model (XGBClassifier from XGBoost).
 """
 import math
 from dataclasses import dataclass
@@ -29,41 +27,6 @@ THRESHOLDS = {
     "block": 0.8,   # score >= 0.8 -> block
 }
 
-# Feature weights for rule-based scoring (replaced by ML model in Phase 3)
-FEATURE_WEIGHTS = {
-    "amount_normalized": 0.18,
-    "amount_log": 0.04,
-    "amount_high": 0.14,
-    "amount_small": 0.06,
-    "is_small_deposit": 0.12,
-    "is_transfer": 0.08,
-    "is_withdrawal": 0.04,
-    "is_deposit": -0.04,
-    "channel_api": 0.08,
-    "hour_risky": 0.04,
-    "is_weekend": 0.02,
-    "sender_txn_count_1h": 0.08,
-    "sender_txn_count_24h": 0.05,
-    "sender_amount_sum_1h": 0.06,
-    "sender_unique_receivers_24h": 0.05,
-    "time_since_last_txn_minutes": 0.06,
-    "device_reuse_count_24h": 0.14,
-    "ip_reuse_count_24h": 0.12,
-    "receiver_txn_count_24h": 0.04,
-    "receiver_amount_sum_24h": 0.04,
-    "receiver_unique_senders_24h": 0.04,
-    "first_time_counterparty": 0.03,
-    "ip_country_risk": 0.06,
-    "card_bin_risk": 0.05,
-    # Pattern-derived features (from graph mining feedback loop)
-    "sender_in_ring": 0.15,
-    "sender_is_hub": 0.08,
-    "sender_in_velocity_cluster": 0.10,
-    "sender_in_dense_cluster": 0.08,
-    "receiver_in_ring": 0.12,
-    "receiver_is_hub": 0.06,
-    "pattern_count_sender": 0.10,
-}
 
 
 def compute_features(txn: dict) -> dict:
@@ -73,7 +36,7 @@ def compute_features(txn: dict) -> dict:
     from the backend (prefixed with sender_*). If absent, velocity features
     default to 0 (cold start).
 
-    Features (25 total):
+    Features (27 core + 7 pattern-derived = 34 total):
     - amount_normalized: amount / 10000, capped at 1.0
     - amount_log: log(amount + 1) / log(50001), normalized to [0,1]
     - amount_small: small amounts are relevant for bonus abuse
@@ -250,13 +213,12 @@ def _get_ml_model():
     """Lazy-load the ML model (cached)."""
     if not hasattr(_get_ml_model, "_cache"):
         _get_ml_model._cache = None
-        _get_ml_model._version = "v0.0.0-rules"
+        _get_ml_model._version = "missing"
     try:
         from risk.trainer import load_model, get_model_version
         model = load_model()
-        if model is not None:
-            _get_ml_model._cache = model
-            _get_ml_model._version = get_model_version()
+        _get_ml_model._cache = model
+        _get_ml_model._version = get_model_version()
     except ImportError:
         pass
     return _get_ml_model._cache, _get_ml_model._version
@@ -276,20 +238,17 @@ def score_transaction(txn: dict) -> RiskResult:
     """
     features = compute_features(txn)
 
-    # Try ML model first
+    # ML model is mandatory
     ml_model, model_version = _get_ml_model()
-    if ml_model is not None:
-        from risk.trainer import FEATURE_NAMES
-        feature_vector = [features.get(name, 0.0) for name in FEATURE_NAMES]
-        try:
-            score = float(ml_model.predict_proba([feature_vector])[0][1])
-        except Exception:
-            # Fallback to rule-based if ML prediction fails
-            score = _rule_based_score(features)
-            model_version = "v0.0.0-rules"
-    else:
-        score = _rule_based_score(features)
-        model_version = "v0.0.0-rules"
+    if ml_model is None:
+        raise RuntimeError("ML model missing. Train or bootstrap before scoring.")
+
+    from risk.trainer import FEATURE_NAMES
+    feature_vector = [features.get(name, 0.0) for name in FEATURE_NAMES]
+    try:
+        score = float(ml_model.predict_proba([feature_vector])[0][1])
+    except Exception as exc:
+        raise RuntimeError("ML scoring failed. Check model integrity.") from exc
 
     # Clamp to [0, 1]
     score = max(0.0, min(1.0, score))
@@ -357,9 +316,3 @@ def score_transaction(txn: dict) -> RiskResult:
     )
 
 
-def _rule_based_score(features: dict) -> float:
-    """Rule-based scoring using weighted feature sum."""
-    score = 0.0
-    for feat_name, weight in FEATURE_WEIGHTS.items():
-        score += features.get(feat_name, 0) * weight
-    return score

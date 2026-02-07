@@ -32,11 +32,15 @@ rm -f app.db
 python scripts/init_db.py
 
 # Step 2: Validate schemas
-echo -e "\n${GREEN}[2/6] Validating schemas...${NC}"
+echo -e "\n${GREEN}[2/7] Validating schemas...${NC}"
 python scripts/validate_schemas.py
 
-# Step 3: Start backend
-echo -e "\n${GREEN}[3/6] Starting backend (FastAPI)...${NC}"
+# Step 3: Bootstrap model
+echo -e "\n${GREEN}[3/7] Bootstrapping ML model...${NC}"
+python scripts/bootstrap_model.py --force
+
+# Step 4: Start backend
+echo -e "\n${GREEN}[4/7] Starting backend (FastAPI)...${NC}"
 uvicorn backend.main:app --host 127.0.0.1 --port 8000 &
 BACKEND_PID=$!
 sleep 3
@@ -48,18 +52,18 @@ else
     echo -e "${YELLOW}  Warning: Backend may not be ready yet${NC}"
 fi
 
-# Step 4: Seed demo data
-echo -e "\n${GREEN}[4/6] Seeding demo data (200 txns + retrain + mining)...${NC}"
+# Step 5: Seed demo data
+echo -e "\n${GREEN}[5/7] Seeding demo data (200 txns + retrain + mining)...${NC}"
 python scripts/seed_demo.py --count 200
 
-# Step 5: Start UI
-echo -e "\n${GREEN}[5/6] Starting UI (Streamlit)...${NC}"
+# Step 6: Start UI
+echo -e "\n${GREEN}[6/7] Starting UI (Streamlit)...${NC}"
 streamlit run ui/app.py --server.port 8501 --server.headless true &
 UI_PID=$!
 sleep 2
 
-# Step 6: Start simulator (continuous stream)
-echo -e "\n${GREEN}[6/6] Starting live transaction simulator (1 TPS)...${NC}"
+# Step 7: Start simulator (continuous stream)
+echo -e "\n${GREEN}[7/7] Starting live transaction simulator (1 TPS)...${NC}"
 python -m sim.main --tps 1 &
 SIM_PID=$!
 

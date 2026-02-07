@@ -26,9 +26,18 @@ class Settings:
         )
 
         # Ollama LLM
-        self.OLLAMA_URL: str = os.getenv("OLLAMA_URL", "http://localhost:11434")
+        self.OLLAMA_URL: str = os.getenv(
+            "OLLAMA_URL", "http://localhost:11434"
+        )
         self.OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
         self.OLLAMA_TIMEOUT: int = int(os.getenv("OLLAMA_TIMEOUT", "30"))
+        self.LLM_MULTI_AGENT: bool = os.getenv(
+            "LLM_MULTI_AGENT", "false"
+        ).lower() in ("1", "true", "yes", "on")
+        self.LLM_MULTI_AGENT_ROLES: list[str] = os.getenv(
+            "LLM_MULTI_AGENT_ROLES",
+            "behavioral,network,compliance",
+        ).split(",")
 
         # Simulator
         self.SIMULATOR_TPS: float = float(os.getenv("SIMULATOR_TPS", "1.0"))

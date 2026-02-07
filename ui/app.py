@@ -181,7 +181,7 @@ def render_header():
     with col_status:
         metrics = fetch_api("/metrics")
         if metrics:
-            ver = metrics.get("model_version", "v0.0.0-rules")
+            ver = metrics.get("model_version", "missing")
             is_ml = "rules" not in ver
             badge = "ML" if is_ml else "Rules"
             chip = "approve" if is_ml else "review"

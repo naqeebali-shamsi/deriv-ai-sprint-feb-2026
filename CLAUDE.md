@@ -133,7 +133,7 @@ Add Researcher only when external intel is required (libraries, best practices, 
 - Backend: FastAPI
 - UI: Streamlit (speed > polish)
 - DB: SQLite (single file `app.db`)
-- ML: scikit-learn (logreg or gradient boosting)
+- ML: XGBoost (XGBClassifier — L1/L2 regularization + native sparse handling)
 - Graph: networkx
 - Scheduler: APScheduler or simple asyncio loop
 - Schemas: JSON Schema in `/schemas` (single source of truth)
@@ -213,7 +213,8 @@ Format: `[YYYY-MM-DD] Context -> Lesson -> Actionable Rule`
 - [2026-02-05] 7-specialist feasibility panel completed -> Full report at `docs/FEASIBILITY_REPORT.md` -> Verdict: CONDITIONAL NO (today), credible path to YES.
 - [2026-02-05] Panel consensus -> Current hackathon success: 55-65%, with 5 fixes: 75-85% -> Execute phases in `.planning/ROADMAP.md`.
 - [2026-02-05] "Autonomous" framing -> Zero agent criteria met without LLM -> MUST add at least one LLM integration point (case reasoning).
-- [2026-02-05] ML assessment -> 3 hardcoded features is not ML -> Use GradientBoostingClassifier with 10-15 features minimum.
+- [2026-02-05] ML assessment -> 3 hardcoded features is not ML -> Use XGBClassifier with 10-15 features minimum.
+- [2026-02-07] ML migration -> Switched from sklearn GradientBoostingClassifier to XGBoost XGBClassifier -> XGBoost handles L1/L2 regularization (reg_alpha, reg_lambda) and sparse data natively, critical for fraud features where most values are zero.
 - [2026-02-05] Simulator flaw -> Fraud=$5K-50K, legit=$10-2K is trivially separable -> Add overlapping distributions + 3 fraud typologies.
 - [2026-02-05] Red team finding -> Amount-only detection bypassed by structuring in <5 min -> Velocity features are mandatory.
 - [2026-02-05] Deriv context -> Hackathon is Deriv AI Talent Sprint (derivatives platform) -> Frame fraud as wash trading, spoofing, bonus abuse.

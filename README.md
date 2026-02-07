@@ -17,7 +17,7 @@ Simulator ──→ FastAPI Backend ──→ Risk Scorer (ML) ──→ Cases
                          Model Update
 ```
 
-**Pipeline:** Stream → Score (17 features) → Case → Label → Learn → Pattern Discovery
+**Pipeline:** Stream → Score (27 core features + 7 pattern-derived = 34 total) → Case → Label → Learn → Pattern Discovery
 
 ## Tech Stack
 
@@ -26,7 +26,7 @@ Simulator ──→ FastAPI Backend ──→ Risk Scorer (ML) ──→ Cases
 | Backend | FastAPI + uvicorn |
 | UI | Streamlit + HTML5 Canvas |
 | Database | SQLite (WAL mode) |
-| ML Model | GradientBoostingClassifier (scikit-learn) |
+| ML Model | XGBClassifier (XGBoost) |
 | Graph Mining | networkx |
 | LLM | Ollama (llama3.1:8b) |
 | Simulator | 5 fraud typologies (wash trading, spoofing, bonus abuse, structuring, velocity abuse) |
@@ -37,7 +37,7 @@ Simulator ──→ FastAPI Backend ──→ Risk Scorer (ML) ──→ Cases
 # Install dependencies
 pip install -r requirements.txt
 
-# Run the full demo (init DB + backend + UI + simulator)
+# Run the full demo (init DB + bootstrap model + backend + UI + simulator)
 python scripts/demo.py
 ```
 
@@ -65,13 +65,17 @@ docker compose --profile setup up --build
 | GET | `/transactions/{id}` | Get transaction detail |
 | GET | `/cases` | List cases (filterable by status) |
 | POST | `/cases/{id}/label` | Analyst labels a case |
+| GET | `/cases/suggested` | Active learning — most uncertain cases |
 | GET | `/cases/{id}/explain` | AI-powered case explanation |
 | GET | `/cases/{id}/explain-stream` | Streaming explanation (SSE) |
 | GET | `/metrics` | System metrics (precision/recall/F1) |
+| GET | `/metric-snapshots` | Model performance history |
 | POST | `/retrain` | Retrain model from analyst labels |
+| POST | `/retrain-from-ground-truth` | Retrain from simulator ground truth |
 | POST | `/mine-patterns` | Trigger pattern mining |
 | GET | `/patterns` | List discovered patterns |
 | GET | `/stream/events` | SSE event stream for real-time UI |
+| GET | `/simulator/status` | Get simulator config and state |
 | POST | `/simulator/start` | Start embedded simulator |
 | POST | `/simulator/stop` | Stop simulator |
 | POST | `/simulator/configure` | Configure fraud types and rate |
@@ -91,10 +95,11 @@ Key settings: `BACKEND_PORT`, `DATABASE_PATH`, `OLLAMA_URL`, `FRAUD_RATE`, `LOG_
 ## Development
 
 ```bash
-pytest tests/ -q          # Run tests
-ruff check .              # Lint
-ruff format .             # Format
-python scripts/validate_schemas.py  # Validate schemas
+python scripts/bootstrap_model.py --force  # Required before scoring
+pytest tests/ -q                           # Run tests
+ruff check .                               # Lint
+ruff format .                              # Format
+python scripts/validate_schemas.py         # Validate schemas
 ```
 
 ## Project Structure

@@ -47,7 +47,7 @@ class OrbitalDataLayer {
       simulatorRunning: false,
       metrics: {
         total_txns: 0, flagged_txns: 0, cases_open: 0, cases_closed: 0,
-        precision: null, recall: null, f1: null, model_version: 'v0.0.0-rules',
+        precision: null, recall: null, f1: null, model_version: 'missing',
       },
       recentTransactions: [],   // last 100
       openCases: new Map(),     // caseId => { txnId, riskScore, decision, fraudType }

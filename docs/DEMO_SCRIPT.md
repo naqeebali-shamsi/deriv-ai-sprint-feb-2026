@@ -45,7 +45,7 @@ Open two browser tabs:
 >
 > **Transactions stream in** from trading activity — we simulate this with realistic synthetic data covering five fraud typologies.
 >
-> **Every transaction gets scored in real-time** by a machine learning model — not rules, not thresholds — a Gradient Boosting model trained on 27 behavioral features including device reuse signals, IP geolocation risk, receiver-side inflow patterns, and card BIN risk scoring. Things like: how many transactions did this sender make in the last hour? How many unique recipients? How fast are they going? What device are they on? Have we seen this IP before?
+> **Every transaction gets scored in real-time** by a machine learning model — not rules, not thresholds — an XGBoost model trained on 34 behavioral features including device reuse signals, IP geolocation risk, receiver-side inflow patterns, and card BIN risk scoring. We chose XGBoost specifically for its built-in L1/L2 regularization and native sparse data handling — critical when most fraud features are zeros. Things like: how many transactions did this sender make in the last hour? How many unique recipients? How fast are they going? What device are they on? Have we seen this IP before?
 >
 > **High-risk transactions automatically become cases** — no human triggers this. The system decides.
 >
@@ -136,7 +136,7 @@ Open two browser tabs:
 ## Judge Q&A — Prepared Answers
 
 ### "What ML model do you use?"
-> "Gradient Boosting Classifier from scikit-learn, trained on 27 features across five categories: amount signals, velocity features, device/IP reuse indicators, receiver-side inflow patterns, and geo/BIN risk scores. The most important features are sender velocity — transaction count and cumulative amount in the last hour — which account for about 80% of the model's predictive power. We chose gradient boosting over logistic regression because it handles non-linear feature interactions without manual engineering."
+> "XGBClassifier from XGBoost, trained on 34 features across five categories: amount signals, velocity features, device/IP reuse indicators, receiver-side inflow patterns, and geo/BIN risk scores. The most important features are sender velocity — transaction count and cumulative amount in the last hour — which account for about 80% of the model's predictive power. We chose XGBoost over sklearn's GradientBoosting because it has built-in L1/L2 regularization (reg_alpha and reg_lambda) to prevent overfitting, and native sparse data handling — critical for fraud features where most values are zero."
 
 ### "How does the LLM integration work?"
 > "We run Llama 3.1 (8B parameters) locally through Ollama. When an analyst clicks Explain, we query the database for the transaction, its features, risk score, and any related patterns. We format that into a structured prompt and ask the LLM to analyze it. The LLM produces a case report with six sections. If Ollama is unavailable, we fall back to deterministic template-based explanations — same format, just less nuanced."
@@ -154,10 +154,13 @@ Open two browser tabs:
 > "Five typologies: structuring (breaking large amounts into small ones to avoid thresholds), velocity abuse (rapid-fire transactions), wash trading (circular money flows), spoofing (rapid order placement and cancellation), and bonus abuse (multiple accounts claiming promotions). The graph mining specifically catches wash trading rings that individual transaction scoring would miss."
 
 ### "What's the tech stack?"
-> "Python end-to-end. FastAPI backend, Streamlit dashboard, SQLite database, scikit-learn for ML, NetworkX for graph analysis, Ollama with Llama 3.1 for AI explanations. Everything runs locally — no cloud dependencies, no API keys needed."
+> "Python end-to-end. FastAPI backend, Streamlit dashboard, SQLite database, XGBoost for ML, NetworkX for graph analysis, Ollama with Llama 3.1 for AI explanations. Everything runs locally — no cloud dependencies, no API keys needed."
 
 ### "Why separate ML from LLM?"
-> "Regulatory compliance. In derivatives trading, model decisions must be auditable, deterministic, and reproducible. Our Gradient Boosting model makes the approve/review/block decision — it's fast, explainable, and version-controlled. The LLM only generates the analyst-facing explanation. This follows Federal Reserve SR 11-7 guidance on model risk management. Most AI projects let the LLM decide everything — that wouldn't survive a compliance audit in financial services."
+> "Regulatory compliance. In derivatives trading, model decisions must be auditable, deterministic, and reproducible. Our XGBoost model makes the approve/review/block decision — it's fast, explainable, and version-controlled. The LLM only generates the analyst-facing explanation. This follows Federal Reserve SR 11-7 guidance on model risk management. Most AI projects let the LLM decide everything — that wouldn't survive a compliance audit in financial services."
+
+### "Doesn't retraining on every label risk degrading the model?"
+> "Good question — we don't do online learning where each label nudges the model. Every retrain builds a fresh model from scratch on the full labeled dataset. So one bad label can't snowball. We also gate on minimum sample counts — the system won't retrain with fewer than 10 samples per class — and every model version saves its metrics so you can see if performance degrades. In production you'd add three things: a validation holdout that the new model must beat before promotion, automatic rollback if live precision drops, and a label review workflow where a second analyst confirms high-impact labels. But the key insight is that the system can retrain at all from analyst feedback — most fraud platforms require a data science team to do that offline."
 
 ### "What would you build next?"
 > "Tool use for the LLM. Right now, we pre-fetch all data and hand it to Llama as a report. The next step is giving the LLM tools — let it query the database, explore the transaction graph, check account history — and drive its own investigation loop. We'd deploy this on AWS Bedrock AgentCore Runtime, which provides the agent execution environment, MCP-compatible tool gateway, and cross-session memory we'd need. That takes it from a narrator to a true investigative agent."
