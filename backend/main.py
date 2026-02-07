@@ -5,6 +5,7 @@ import logging
 import math
 import time as _time_mod
 import traceback
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any, Literal
@@ -113,6 +114,10 @@ class MetricsOut(BaseModel):
 _guardian_task: asyncio.Task | None = None
 _mining_task: asyncio.Task | None = None
 
+# Dedicated LLM thread pool — isolates Ollama calls from the main executor
+# so LLM hangs can never starve DB queries, metrics, or health checks.
+_llm_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="llm")
+
 # --- Auto-retrain debounce ---
 _last_retrain_time: float = 0
 
@@ -176,19 +181,23 @@ async def _auto_explain_case(
                 or receiver in (p.get("description") or "")
             ]
 
-        # Generate explanation (runs LLM or template in executor to not block)
+        # Generate explanation in dedicated LLM thread pool with hard timeout.
+        # This prevents Ollama hangs from starving the main thread pool (cascade fix).
         loop = asyncio.get_running_loop()
-        explanation = await loop.run_in_executor(
-            None,
-            lambda: explain_case(
-                txn=txn_data,
-                risk_score=risk_score,
-                decision=decision,
-                features=features,
-                reasons=reasons,
-                patterns=related_patterns,
-                model_version=model_version,
+        explanation = await asyncio.wait_for(
+            loop.run_in_executor(
+                _llm_executor,
+                lambda: explain_case(
+                    txn=txn_data,
+                    risk_score=risk_score,
+                    decision=decision,
+                    features=features,
+                    reasons=reasons,
+                    patterns=related_patterns,
+                    model_version=model_version,
+                ),
             ),
+            timeout=15.0,
         )
 
         # Store explanation in DB
@@ -215,6 +224,27 @@ async def _auto_explain_case(
             "Auto-explained case %s via %s",
             case_id[:8], explanation.get("agent", "?"),
         )
+    except asyncio.TimeoutError:
+        # Ollama hung — store template fallback so case isn't left with NULL explanation
+        logger.warning("Auto-explain timed out for case %s — storing template fallback", case_id[:8])
+        fallback = {
+            "summary": f"Risk score {risk_score:.3f} ({decision.upper()}). Analysis pending — template summary.",
+            "risk_factors": reasons if reasons else ["See risk score and features."],
+            "behavioral_analysis": "", "pattern_context": "",
+            "recommendation": f"{decision.upper()} based on risk score {risk_score:.3f}.",
+            "confidence_note": "", "full_explanation": "",
+            "agent": "fraud-agent-v1 (timeout-fallback)",
+            "investigation_timeline": [],
+        }
+        try:
+            async with get_db() as db:
+                await db.execute(
+                    "UPDATE cases SET explanation = ? WHERE case_id = ?",
+                    (json.dumps(fallback), case_id),
+                )
+                await db.commit()
+        except Exception:
+            pass
     except Exception:
         logger.exception("Auto-explain failed for case %s", case_id[:8])
 
@@ -861,15 +891,53 @@ async def explain_case_endpoint(case_id: str):
             or txn["receiver_id"] in (p.get("description") or "")
         ]
 
-    explanation = explain_case(
-        txn=txn,
-        risk_score=risk_score,
-        decision=decision,
-        features=features,
-        reasons=reasons,
-        patterns=related_patterns,
-        model_version=model_version,
-    )
+    # Run in executor to avoid blocking the event loop — explain_case()
+    # makes synchronous HTTP calls to Ollama which can take 30+ seconds.
+    # Wrap with asyncio.wait_for to enforce a hard timeout so the endpoint
+    # can't hang forever if Ollama is unreachable (cascading failure fix).
+    loop = asyncio.get_running_loop()
+    try:
+        explanation = await asyncio.wait_for(
+            loop.run_in_executor(
+                _llm_executor,
+                lambda: explain_case(
+                    txn=txn,
+                    risk_score=risk_score,
+                    decision=decision,
+                    features=features,
+                    reasons=reasons,
+                    patterns=related_patterns,
+                    model_version=model_version,
+                ),
+            ),
+            timeout=15.0,  # Hard cap: respond within 15s even if Ollama hangs
+        )
+    except asyncio.TimeoutError:
+        logger.warning("explain_case timed out for case %s — falling back to template", case_id[:8])
+        explanation = {
+            "summary": f"Risk score {risk_score:.3f} ({decision.upper()}). LLM analysis timed out — template summary provided.",
+            "risk_factors": reasons if reasons else ["LLM unavailable — see risk score and features."],
+            "behavioral_analysis": "",
+            "pattern_context": "",
+            "recommendation": f"{decision.upper()} based on risk score {risk_score:.3f}.",
+            "confidence_note": "",
+            "full_explanation": "",
+            "agent": "fraud-agent-v1 (timeout-fallback)",
+            "investigation_timeline": [],
+        }
+    except Exception:
+        logger.exception("On-demand explain_case failed for case %s", case_id[:8])
+        explanation = {
+            "summary": "Explanation generation failed. See risk score and features for details.",
+            "risk_factors": reasons if reasons else ["Unable to generate detailed analysis."],
+            "behavioral_analysis": "",
+            "pattern_context": "",
+            "recommendation": f"{decision.upper()} based on risk score {risk_score:.3f}.",
+            "confidence_note": "",
+            "full_explanation": "",
+            "agent": "fraud-agent-v1 (error-fallback)",
+            "investigation_timeline": [],
+        }
 
     return {
         "case_id": case_id,
@@ -967,16 +1035,25 @@ async def explain_case_stream(case_id: str):
             finally:
                 queue.put_nowait((sentinel, True))
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         loop.run_in_executor(None, _stream_to_queue)
 
-        while True:
-            item = await asyncio.wait_for(queue.get(), timeout=60)
-            chunk, done = item
-            if chunk is sentinel:
-                yield "data: [DONE]\n\n"
-                break
-            yield f"data: {json.dumps({'text': chunk, 'done': done})}\n\n"
+        try:
+            while True:
+                item = await asyncio.wait_for(queue.get(), timeout=60)
+                chunk, done = item
+                if chunk is sentinel:
+                    yield "data: [DONE]\n\n"
+                    break
+                yield f"data: {json.dumps({'text': chunk, 'done': done})}\n\n"
+        except asyncio.TimeoutError:
+            logger.warning("explain-stream timed out waiting for Ollama chunks (case %s)", case_id[:8])
+            yield f"data: {json.dumps({'text': 'Error: LLM streaming timed out.', 'done': True})}\n\n"
+            yield "data: [DONE]\n\n"
+        except Exception as e:
+            logger.error("explain-stream error for case %s: %s", case_id[:8], e)
+            yield f"data: {json.dumps({'text': f'Error: {e}', 'done': True})}\n\n"
+            yield "data: [DONE]\n\n"
 
     return StreamingResponse(generate(), media_type="text/event-stream")
 

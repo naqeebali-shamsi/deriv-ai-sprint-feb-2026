@@ -9,10 +9,19 @@ Architecture:
 - Output: Structured explanation dict (same format regardless of backend)
 - Streaming: Supports token-by-token streaming for live UI feedback
 """
+import logging
 import time
 from datetime import datetime
 
 import httpx
+
+logger = logging.getLogger(__name__)
+
+# --- Ollama Circuit Breaker ---
+# After Ollama fails, skip it for _CB_COOLDOWN seconds to avoid 30s hangs
+# that exhaust the thread pool and cascade into "backend not reachable".
+_cb_last_failure: float = 0.0
+_CB_COOLDOWN = 60  # seconds
 
 from config import get_settings
 
@@ -165,8 +174,25 @@ PATTERN CONTEXT: Explain matched pattern connection, or state "No pattern matche
 RECOMMENDATION: BLOCK, REVIEW, or APPROVE with 1-2 specific next steps for the analyst."""
 
 
+def _ollama_available() -> bool:
+    """Check circuit breaker — skip Ollama if it failed recently."""
+    global _cb_last_failure
+    if _cb_last_failure and (time.time() - _cb_last_failure) < _CB_COOLDOWN:
+        return False
+    return True
+
+
+def _mark_ollama_down():
+    """Trip the circuit breaker after a connection failure."""
+    global _cb_last_failure
+    _cb_last_failure = time.time()
+    logger.warning("Ollama circuit breaker tripped — skipping LLM for %ds", _CB_COOLDOWN)
+
+
 def _call_ollama(prompt: str) -> str | None:
     """Call Ollama API and return the response text, or None on failure."""
+    if not _ollama_available():
+        return None
     try:
         resp = httpx.post(
             f"{OLLAMA_URL}/api/generate",
@@ -181,13 +207,15 @@ def _call_ollama(prompt: str) -> str | None:
                     "repeat_penalty": 1.1,  # Penalize repetition (common in 8B models)
                 },
             },
-            timeout=OLLAMA_TIMEOUT,
+            timeout=httpx.Timeout(connect=3.0, read=OLLAMA_TIMEOUT, write=5.0, pool=5.0),
         )
         if resp.status_code == 200:
             data = resp.json()
             return data.get("response", "")
-    except Exception:
-        pass
+    except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout):
+        _mark_ollama_down()
+    except Exception as e:
+        logger.warning("Ollama call failed: %s", e)
     return None
 
 
@@ -266,6 +294,8 @@ def _call_ollama_stream(prompt: str):
     Yields (chunk_text, is_done) tuples. Returns gracefully on failure.
     Pattern stolen from AgentCore's @app.entrypoint streaming pattern.
     """
+    if not _ollama_available():
+        return
     try:
         with httpx.stream(
             "POST",
@@ -281,7 +311,7 @@ def _call_ollama_stream(prompt: str):
                     "repeat_penalty": 1.1,
                 },
             },
-            timeout=OLLAMA_TIMEOUT,
+            timeout=httpx.Timeout(connect=3.0, read=OLLAMA_TIMEOUT, write=5.0, pool=5.0),
         ) as resp:
             if resp.status_code != 200:
                 return
@@ -299,7 +329,10 @@ def _call_ollama_stream(prompt: str):
                         return
                 except _json.JSONDecodeError:
                     continue
-    except Exception:
+    except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout):
+        _mark_ollama_down()
+    except Exception as e:
+        logger.warning("Ollama stream failed: %s", e)
         return
 
 

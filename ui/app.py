@@ -330,16 +330,7 @@ def render_cases():
 
 def render_patterns():
     """Render discovered pattern cards."""
-    col_header, col_action = st.columns([3, 1])
-    with col_header:
-        st.subheader("Discovered Fraud Patterns")
-    with col_action:
-        if st.button("Run Mining", use_container_width=True):
-            with st.spinner("Mining patterns..."):
-                result = fetch_api("/mine-patterns", method="POST")
-                if result:
-                    st.success(f"Found {result['patterns_found']} patterns!")
-                    st.rerun()
+    st.subheader("Discovered Fraud Patterns")
     patterns = fetch_api("/patterns?limit=15")
     if not patterns:
         st.info("No patterns discovered yet.")
