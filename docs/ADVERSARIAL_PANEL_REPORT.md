@@ -140,3 +140,8 @@ Generate a held-out adversarial test set with transactions designed to evade the
 - Yao et al. (2022): ReAct framework for LLM agents
 
 *Panel assessment completed February 7, 2026.*
+
+---
+## See Also
+- [FEASIBILITY_REPORT.md](FEASIBILITY_REPORT.md) — Original panel baseline assessment
+- [DESIGN_DECISIONS.md](DESIGN_DECISIONS.md) — Full technical analysis

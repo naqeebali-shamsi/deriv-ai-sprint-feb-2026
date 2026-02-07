@@ -66,7 +66,7 @@ Fix the simulator to generate non-trivially-separable data and add velocity feat
 Implement the learning loop: train a real model on labeled data, retrain periodically, show metrics improving over time. This is the "self-improving" claim made visible.
 
 ### Tasks
-- [ ] 3.1 Create `risk/trainer.py` — train GradientBoostingClassifier on labeled transactions
+- [ ] 3.1 Create `risk/trainer.py` — train XGBClassifier (XGBoost) on labeled transactions
 - [ ] 3.2 Implement feature computation for training data (join transactions + analyst_labels)
 - [ ] 3.3 Save trained model with joblib, version it (v0.1.0, v0.2.0, etc.)
 - [ ] 3.4 Load trained model in scorer instead of hardcoded weights

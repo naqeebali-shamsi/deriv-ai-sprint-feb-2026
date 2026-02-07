@@ -4,7 +4,7 @@
 
 - **Name:** Autonomous Fraud Detection Agent
 - **Type:** Hackathon MVP (Deriv AI Talent Sprint, Feb 6-8, 2026)
-- **Stack:** Python, FastAPI, Streamlit, SQLite, scikit-learn, networkx
+- **Stack:** Python, FastAPI, Streamlit, SQLite, XGBoost (XGBClassifier), networkx
 - **Goal:** Ship a functional autonomous fraud-agent demo that wins/places at hackathon
 
 ## Context
@@ -19,14 +19,14 @@ This project was assessed by a 7-specialist panel on 2026-02-05. Full report at 
 | JSON schemas (6) | Done | All validated, Draft-07 compliant |
 | Backend API | Done | FastAPI with CRUD endpoints for txns, cases, labels, metrics, patterns |
 | UI dashboard | Done | Streamlit with 3 tabs (Live Stream, Cases, Patterns) |
-| Risk scorer | Placeholder | 3 hardcoded features, NOT wired into pipeline, returns None |
-| Pattern miner | Placeholder | Checks amount > 5000 only, no graph analysis |
-| Simulator | Partial | Generates data but trivially separable (fraud=$5K-50K, legit=$10-2K) |
-| ML model | Missing | No trained model, no training loop, no evaluation |
-| LLM integration | Missing | Zero LLM calls despite "agent" framing |
-| Retraining loop | Missing | Labels stored but never used for learning |
-| Velocity features | Missing | No per-user temporal aggregations |
-| Tests | Done | 22 passing (schema validation + pipeline smoke tests) |
+| Risk scorer | Done | XGBClassifier with 34 features (27 core + 7 pattern-derived), wired into pipeline |
+| Pattern miner | Done | 4 graph algorithms: ring detection, hub analysis, velocity clusters, dense subgraphs |
+| Simulator | Done | 5 fraud typologies with overlapping log-normal distributions, ISO 20022 metadata |
+| ML model | Done | XGBClassifier (XGBoost), versioned models, hot-reload on retrain |
+| LLM integration | Done | Ollama llama3.1:8b with 3-tier fallback (Golden Path / LLM / Template) |
+| Retraining loop | Done | /retrain endpoint, analyst labels drive model improvement |
+| Velocity features | Done | 11 velocity SQL queries per transaction |
+| Tests | Done | 49 passing (schema + pipeline + API + ML tests) |
 
 ### Panel Verdict
 
@@ -56,7 +56,7 @@ This project was assessed by a 7-specialist panel on 2026-02-05. Full report at 
 - Backend: FastAPI
 - UI: Streamlit
 - DB: SQLite (single file app.db)
-- ML: scikit-learn
+- ML: XGBoost (XGBClassifier)
 - Graph: networkx
 - No external infrastructure
 - No distributed systems
@@ -76,4 +76,4 @@ This project was assessed by a 7-specialist panel on 2026-02-05. Full report at 
 | `patterns/miner.py` | Pattern mining (currently placeholder) |
 | `sim/main.py` | Transaction simulator |
 | `ui/app.py` | Streamlit dashboard |
-| `scripts/demo.sh` | One-command demo runner |
+| `scripts/demo.py` | One-command demo runner |

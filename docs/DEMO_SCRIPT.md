@@ -177,3 +177,9 @@ Open two browser tabs:
 | UI frozen | Refresh browser. Streamlit auto-reconnects. |
 | Empty database | `python scripts/seed_demo.py --count 200` |
 | Port 8000 in use | `netstat -ano \| grep 8000` then `taskkill //F //PID <pid>` |
+
+---
+## See Also
+- [PITCH_TRANSCRIPT.md](PITCH_TRANSCRIPT.md) — 2-minute condensed pitch version
+- [PRE_DEMO_AUDIT.md](PRE_DEMO_AUDIT.md) — Pre-flight readiness check
+- [ARCHITECTURE.mmd](ARCHITECTURE.mmd) — Diagram shown during demo

@@ -48,7 +48,7 @@ Thank you."
 A: "Absolutely not. The core scoring is a dedicated XGBoost classifier trained on behavioral features like 1-hour velocity and time-since-last-txn. We chose XGBoost specifically for its built-in L1/L2 regularization and native sparse data handling — critical for fraud features where most values are zero. The LLM is *only* used for the explanation layer. The detection is pure, low-latency ML."
 
 **Q: How do you handle wash trading?**
-A: "We use NetworkX to build a directed graph of recent transactions. We run four algorithms: cycle detection (DFS) to find closed loops like A->B->C->A, hub analysis for high-connectivity accounts, velocity clustering for temporal bursts, and connected component analysis with density filtering to spot coordinated activity. These become 'Pattern Cards' that feed back into the risk score."
+A: "We use NetworkX to build a directed graph of recent transactions. We run four algorithms: cycle detection (DFS) to find closed loops like A->B->C->A, hub analysis for high-connectivity accounts, velocity clustering for temporal bursts, and connected component analysis and density-based clustering to spot coordinated activity. These become 'Pattern Cards' that feed back into the risk score."
 
 **Q: Does it really retrain?**
 A: "Yes. The backend has a `/retrain` endpoint that pulls labeled data, re-computes the feature matrix, fits a new XGBoost model, creates a versioned model file, and hot-swaps it into the scorer without downtime."
@@ -58,3 +58,7 @@ A: "By design. In regulated industries — banking, derivatives trading — mode
 
 **Q: How would you deploy this in production?**
 A: "We've evaluated AWS Bedrock AgentCore Runtime — serverless agent hosting with session isolation, agent identity management, and built-in observability. Our FastAPI backend ports to AgentCore with minimal changes. For the next phase — tool use and autonomous investigation — AgentCore's MCP gateway would auto-convert our endpoints into agent-callable tools. Today runs local for maximum demo reliability; production runs on AgentCore for enterprise scale."
+
+---
+## See Also
+- [DEMO_SCRIPT.md](DEMO_SCRIPT.md) — Full 5-7 minute demo walkthrough with detailed Q&A

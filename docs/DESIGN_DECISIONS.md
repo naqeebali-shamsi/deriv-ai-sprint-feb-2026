@@ -192,14 +192,14 @@ The most damaging finding: **the simulator generates rich metadata that the scor
 
 ```python
 # sim/main.py generates:
-meta["ip_country"]       # Geographic risk — NEVER FEATURIZED
-meta["device_id"]        # Device fingerprint — NEVER FEATURIZED
+meta["ip_country"]       # Geographic risk — NOW FEATURIZED (ip_country_risk)
+meta["device_id"]        # Device fingerprint — NOW FEATURIZED (device_reuse_count_24h)
 meta["user_agent"]       # Browser fingerprint — NEVER FEATURIZED
 meta["session_id"]       # Session analytics — NEVER FEATURIZED
-meta["card_bin"]         # Card risk — NEVER FEATURIZED
+meta["card_bin"]         # Card risk — NOW FEATURIZED (card_bin_risk)
 ```
 
-**Consequence:** Bonus abuse fraud (20% of simulated fraud volume) is fundamentally undetectable by the ML model because the signals that identify it (shared devices, shared IPs across accounts) are never extracted into features.
+**UPDATE (Feb 7):** `ip_country`, `device_id`, and `card_bin` are now featurized. `ip_country_risk` uses a geo-risk map, `device_reuse_count_24h` and `ip_reuse_count_24h` track device/IP sharing across accounts, and `card_bin_risk` scores BIN ranges. Bonus abuse detection has improved but `user_agent` and `session_id` remain unused.
 
 ### Missing Feature Categories (Priority Order)
 
@@ -288,6 +288,8 @@ The graph miner produces pattern cards. The LLM explainer can reference them. Bu
 
 Production systems close this loop: graph features (is the sender in a ring? what's their PageRank? how many flagged neighbors?) are injected as features into the supervised model.
 
+**UPDATE (Feb 7):** This gap has been closed. `patterns/features.py` now computes 7 pattern-derived features (sender_in_ring, sender_is_hub, sender_in_velocity_cluster, sender_in_dense_cluster, receiver_in_ring, receiver_is_hub, pattern_count_sender) that feed into the ML model at scoring time.
+
 ### Scale Limits
 
 | Scale | Nodes | Edges | networkx Memory | `simple_cycles` Runtime |
@@ -366,7 +368,7 @@ Everything runs in one uvicorn process: FastAPI, ML scoring, graph mining, SSE s
 |------|---------|
 | HTTP parsing + middleware | 0.5ms |
 | SQLite connect + PRAGMA | 2-5ms |
-| 5 velocity SQL queries | 5-15ms |
+| 11 velocity SQL queries | 5-15ms |
 | Feature computation | 0.05ms |
 | ML predict_proba | 0.5-2ms |
 | 3 DB writes + commit | 2-7ms |
@@ -388,7 +390,7 @@ Everything runs in one uvicorn process: FastAPI, ML scoring, graph mining, SSE s
 | Component | Hackathon | Production |
 |-----------|-----------|------------|
 | Transaction store | SQLite (single file) | PostgreSQL + Citus sharding |
-| Velocity features | 5 SQL queries per request (15-25ms) | Redis Sorted Sets (<1ms) |
+| Velocity features | 11 SQL queries per request (15-25ms) | Redis Sorted Sets (<1ms) |
 | Event streaming | `list[asyncio.Queue]` | Kafka (days of replay, exactly-once) |
 | ML serving | In-process XGBoost | ONNX Runtime / TensorFlow Serving |
 | Graph database | In-memory networkx | Neo4j / TigerGraph |
@@ -591,3 +593,9 @@ The strongest element is the **graph mining**. The weakest is the **LLM integrat
 *This assessment was produced by a 7-specialist panel: Market Researcher, ML/AI Architect, Financial Domain Expert, Systems Architect, Business Analyst, Red Team Analyst, and Creative Builder. Each specialist conducted independent research and codebase review. Findings were synthesized into this document with conflicts resolved by cross-referencing multiple specialist opinions.*
 
 *All file references point to the codebase at `N:\DERIV_AI_HACKATHON`. Regulatory references verified against current (2026) published versions. Market data sourced from LexisNexis, SkyQuest, MarketsandMarkets, SNS Insider, and vendor-published materials.*
+
+---
+## See Also
+- [ARCHITECTURE.mmd](ARCHITECTURE.mmd) — Visual system architecture diagram
+- [FEASIBILITY_REPORT.md](FEASIBILITY_REPORT.md) — Original panel assessment (Feb 5 baseline)
+- [ADVERSARIAL_PANEL_REPORT.md](ADVERSARIAL_PANEL_REPORT.md) — Innovation and adversarial assessment

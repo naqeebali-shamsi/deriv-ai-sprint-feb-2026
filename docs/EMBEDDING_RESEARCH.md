@@ -1,5 +1,7 @@
 # Text Data vs General LLM Embedding Feature Engineering: Comparative Analysis
 
+> **RESEARCH NOTE (Not Implemented):** This analysis of LLM embedding techniques has not been implemented in the codebase. It remains a reference for future Phase 7+ work.
+
 **Date:** 2026-02-05
 **Purpose:** Assess applicability to fraud detection autonomous agent
 

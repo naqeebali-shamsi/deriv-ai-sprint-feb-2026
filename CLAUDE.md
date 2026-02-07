@@ -109,7 +109,7 @@ Add Researcher only when external intel is required (libraries, best practices, 
 - `run-sim`: `python -m sim.main`
 - `run-backend`: `uvicorn backend.main:app --reload`
 - `run-ui`: `streamlit run ui/app.py`
-- `demo`: `bash scripts/demo.sh` (full end-to-end loop)
+- `demo`: `python scripts/demo.py` (full end-to-end loop)
 
 ### Test & Validate
 - `test`: `pytest tests/ -q`
@@ -173,6 +173,27 @@ If work does not improve autonomy optics, learning optics, pattern optics, or de
 
 ---
 
+## Documentation Navigation
+
+All project documentation is indexed at [`docs/INDEX.md`](docs/INDEX.md) with categories:
+- **Architecture & Technical** — system design, decisions, schema changelog
+- **Business & Domain** — ROI, compliance, domain validation
+- **Demo & Presentation** — demo script, pitch, infographic, pre-flight audit
+- **Assessments & Analysis** — panel reports, feasibility studies
+- **Research** — technique analyses not yet implemented
+
+QA reports: [`reports/`](reports/) (7 adversarial QA test reports).
+Planning docs: [`.planning/`](.planning/) (PROJECT.md, ROADMAP.md).
+Schemas: [`schemas/`](schemas/) (6 JSON contracts — single source of truth).
+
+Key documents for quick reference:
+- Architecture: [`docs/DESIGN_DECISIONS.md`](docs/DESIGN_DECISIONS.md)
+- Demo script: [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md)
+- QA verdict: [`reports/qa_final_verdict.md`](reports/qa_final_verdict.md)
+- Roadmap: [`.planning/ROADMAP.md`](.planning/ROADMAP.md)
+
+---
+
 ## Schema Contract Rules (Hard)
 
 - `/schemas` is the single source of truth.
@@ -215,12 +236,17 @@ Format: `[YYYY-MM-DD] Context -> Lesson -> Actionable Rule`
 - [2026-02-05] "Autonomous" framing -> Zero agent criteria met without LLM -> MUST add at least one LLM integration point (case reasoning).
 - [2026-02-05] ML assessment -> 3 hardcoded features is not ML -> Use XGBClassifier with 10-15 features minimum.
 - [2026-02-07] ML migration -> Switched from sklearn GradientBoostingClassifier to XGBoost XGBClassifier -> XGBoost handles L1/L2 regularization (reg_alpha, reg_lambda) and sparse data natively, critical for fraud features where most values are zero.
+  See: [docs/DESIGN_DECISIONS.md](docs/DESIGN_DECISIONS.md) Section 5 (ML Model Design)
 - [2026-02-05] Simulator flaw -> Fraud=$5K-50K, legit=$10-2K is trivially separable -> Add overlapping distributions + 3 fraud typologies.
 - [2026-02-05] Red team finding -> Amount-only detection bypassed by structuring in <5 min -> Velocity features are mandatory.
 - [2026-02-05] Deriv context -> Hackathon is Deriv AI Talent Sprint (derivatives platform) -> Frame fraud as wash trading, spoofing, bonus abuse.
 - [2026-02-05] Phase 1 (wire scorer) blocks everything else -> Do this first, no exceptions.
 - [2026-02-05] Demo strategy -> Probability of LLM failure is non-zero -> Implemented "Golden Path" (mocked perfect response for hero transactions) to guarantee 100% demo reliability.
 - [2026-02-06] AWS Bedrock AgentCore evaluation -> 4-specialist panel (Architect/Builder/Demo Director/Red Team) unanimously said SKIP for hackathon -> Stole 3 patterns: streaming LLM, investigation timeline, threshold rationale. Mention AgentCore in Q&A only. Revisit for Phase 7+ after GA.
+  See: [docs/DESIGN_DECISIONS.md](docs/DESIGN_DECISIONS.md) Section 6 (LLM Integration)
+- [2026-02-07] Documentation audit -> 14 HIGH-priority undocumented features found, 9 inconsistencies fixed -> Always update docs when code changes; refer to docs/INDEX.md for navigation.
+- [2026-02-07] Naming conventions -> docs/ uses UPPER_SNAKE.md, reports/ uses lower_snake.md -> Follow per-directory naming convention for new files.
+- [2026-02-07] Schema divergence -> init_db.py and backend/db.py have different schemas (model_state table only in init_db.py) -> Investigate and reconcile before production.
 
 ---
 
@@ -261,7 +287,7 @@ Format: `[YYYY-MM-DD] Context -> Lesson -> Actionable Rule`
 ## Demo OS (Hard)
 
 ### One-command demo
-`scripts/demo.sh` must:
+`scripts/demo.py` must:
 - init db
 - start backend
 - start UI

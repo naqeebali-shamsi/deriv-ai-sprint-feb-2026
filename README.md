@@ -102,6 +102,15 @@ ruff format .                              # Format
 python scripts/validate_schemas.py         # Validate schemas
 ```
 
+## Key Technical Features
+
+- **Multi-Agent LLM Explanations** -- When `LLM_MULTI_AGENT=true`, 3 specialist analysts (Behavioral, Network/Pattern, Compliance) produce parallel analyses, synthesized by a 4th Lead Analyst into a single investigation report.
+- **Active Learning** -- `GET /cases/suggested` returns cases sorted by model uncertainty (risk score closest to 0.5), prioritizing the most informative cases for analyst labeling.
+- **Investigation Timeline** -- Every case explanation includes a timestamped step-by-step investigation timeline tracking features, patterns, LLM calls, and synthesis with millisecond precision.
+- **Pattern-to-ML Feedback Loop** -- 7 graph-derived features (`sender_in_ring`, `sender_is_hub`, `sender_in_velocity_cluster`, `sender_in_dense_cluster`, `receiver_in_ring`, `receiver_is_hub`, `pattern_count_sender`) flow from pattern mining back into the ML scorer at scoring time.
+- **SSE Real-Time Events** -- Server-Sent Events stream (`GET /stream/events`) with 7 event types (`transaction`, `case_created`, `case_labeled`, `retrain`, `pattern`, `simulator_*`, `heartbeat`) and 15-second keepalive heartbeats.
+- **Adversarial Testing Suite** -- 5 evasion-strategy generators in `sim/adversarial.py` (`generate_subtle_structuring`, `generate_stealth_wash_trade`, `generate_slow_velocity_abuse`, `generate_legit_looking_fraud`, `generate_bonus_abuse_evasion`) for red-team evaluation.
+
 ## Project Structure
 
 ```

@@ -1,4 +1,7 @@
 # PRE-DEMO ADVERSARIAL AUDIT
+
+> **HISTORICAL DOCUMENT (Feb 5, 2026):** This pre-demo audit was performed before significant code changes. For current assessment, see [qa_final_verdict.md](../reports/qa_final_verdict.md).
+
 **Date:** February 5, 2026
 **Auditor:** Antigravity (Adversarial Agent)
 **Status:** READY FOR DEMO (Conditional)

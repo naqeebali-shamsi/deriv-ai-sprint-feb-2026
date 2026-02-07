@@ -1,5 +1,7 @@
 # AUTONOMOUS FRAUD DETECTION AGENT: FINAL PANEL ASSESSMENT
 
+> **HISTORICAL DOCUMENT (Feb 5, 2026):** This is a point-in-time assessment produced BEFORE implementation of Phases 1-6. All identified gaps have since been addressed. For current system state, see [DESIGN_DECISIONS.md](DESIGN_DECISIONS.md) and [qa_final_verdict.md](../reports/qa_final_verdict.md).
+
 ## Independent Technology Assessment — Moderated Panel Debate
 
 **Engagement:** Autonomous Fraud Agent — Viability Assessment
@@ -292,3 +294,7 @@ Full detailed reports from each specialist are archived in the project task outp
 - Co-Investigator AI: Multi-agent SAR generation (arxiv)
 - McKinsey: Agentic AI in Financial Crime
 - NVIDIA Financial Fraud Detection Blueprint (GNN + XGBoost)
+
+---
+## See Also
+- [DESIGN_DECISIONS.md](DESIGN_DECISIONS.md) — Detailed technical decisions addressing this report's findings

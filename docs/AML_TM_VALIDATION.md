@@ -43,3 +43,8 @@ For a high-frequency trading platform like Deriv, the "Monotony" is often **Wash
 
 ## 5. Final Assessment
 This solution **validates** as a robust **L1 Automation Layer**. It transforms the AML workflow from "Reviewing Transactions" (Monotonous) to "Reviewing Investigations" (High Value).
+
+---
+## See Also
+- [BUSINESS_CASE.md](BUSINESS_CASE.md) — ROI and competitive analysis
+- [FINANCIAL_DOMAIN_EVALUATION.md](FINANCIAL_DOMAIN_EVALUATION.md) — Fraud typology accuracy assessment
