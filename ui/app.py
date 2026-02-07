@@ -57,9 +57,14 @@ def build_orbital_html(backend_url: str) -> str:
     engine = _load_asset("orbital_engine.js")
     data_layer = _load_asset("orbital_data.js")
 
+    # Extract port from server-side URL for browser-side auto-detection.
+    # The browser resolves the hostname itself (works for both Docker and local).
+    from urllib.parse import urlparse
+    backend_port = urlparse(backend_url).port or 8000
+
     init_script = f"""
     (function() {{
-      var BACKEND_URL = "{backend_url}";
+      var BACKEND_URL = window.location.protocol + "//" + window.location.hostname + ":{backend_port}";
 
       function boot() {{
         var canvas = document.getElementById('greenhouse-canvas');
