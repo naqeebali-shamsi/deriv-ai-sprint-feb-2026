@@ -322,10 +322,10 @@ def render_cases():
                             st.success(f"**Recommendation:** {rec}")
                         timeline = explanation.get("investigation_timeline", [])
                         if timeline:
-                            with st.expander("Investigation Timeline", expanded=False):
-                                for step in timeline:
-                                    icon = {"ok": "OK", "fallback": "FALLBACK"}.get(step.get("status", ""), "...")
-                                    st.markdown(f"[{icon}] **{step['step']}** \u2014 {step.get('detail', '')} ({step.get('elapsed_ms', 0):.0f}ms)")
+                            st.markdown("**Investigation Timeline**")
+                            for step in timeline:
+                                icon = {"ok": "\u2705", "fallback": "\u26A0\uFE0F"}.get(step.get("status", ""), "\u2022")
+                                st.caption(f"{icon} **{step['step']}** \u2014 {step.get('detail', '')} ({step.get('elapsed_ms', 0):.0f}ms)")
 
 
 def render_patterns():
@@ -415,9 +415,13 @@ def render_metrics_trend():
     importance = latest.get("feature_importance", {})
     if importance:
         st.markdown("**Top Feature Importances**")
-        imp_df = pd.DataFrame(sorted(importance.items(), key=lambda x: -x[1])[:8],
-                              columns=["Feature", "Importance"])
-        st.bar_chart(imp_df.set_index("Feature"), height=200)
+        # Filter out NaN/Inf values before charting
+        clean = {k: v for k, v in importance.items()
+                 if isinstance(v, (int, float)) and not (v != v) and abs(v) != float("inf")}
+        if clean:
+            imp_df = pd.DataFrame(sorted(clean.items(), key=lambda x: -x[1])[:8],
+                                  columns=["Feature", "Importance"])
+            st.bar_chart(imp_df.set_index("Feature"), height=200)
 
 
 def _label_case(case_id: str, decision: str):
@@ -472,7 +476,7 @@ def main():
             auto_refresh = st.toggle("Auto-refresh (5s)", value=False)
         else:
             auto_refresh = False
-        st.caption("Deriv AI Talent Sprint 2026")
+        st.caption("Drishpex 2026")
 
     if view == "Orbital Greenhouse":
         render_orbital_greenhouse()
