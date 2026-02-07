@@ -247,6 +247,13 @@ Format: `[YYYY-MM-DD] Context -> Lesson -> Actionable Rule`
 - [2026-02-07] Documentation audit -> 14 HIGH-priority undocumented features found, 9 inconsistencies fixed -> Always update docs when code changes; refer to docs/INDEX.md for navigation.
 - [2026-02-07] Naming conventions -> docs/ uses UPPER_SNAKE.md, reports/ uses lower_snake.md -> Follow per-directory naming convention for new files.
 - [2026-02-07] Schema divergence -> init_db.py and backend/db.py have different schemas (model_state table only in init_db.py) -> Investigate and reconcile before production.
+- [2026-02-07] Expert review (4-agent audit) -> SSE events only fired from embedded simulator, not from POST /transactions -> Always publish SSE events from the core endpoint, not the caller.
+- [2026-02-07] Bootstrap model recall -> 22% recall when velocity features are all zeros in training data -> bootstrap_model.py must inject synthetic velocity/pattern context; use _inject_velocity_context().
+- [2026-02-07] ML model caching -> reload_model() deleted attributes instead of nulling them, causing AttributeError -> Set _cache = None, never delete function attributes.
+- [2026-02-07] Auto-retrain -> Manual retrain button was only "self-improving" mechanism -> Added background auto-retrain after label endpoint when min samples per class are met.
+- [2026-02-07] Hero transaction reliability -> Demo hero txn could score below threshold if model changed -> Added score floor (0.92) for metadata.demo_hero in scorer.py.
+- [2026-02-07] XSS in Orbital Greenhouse -> innerHTML from SSE data was unescaped -> Added _esc() HTML entity sanitizer in orbital_data.js for all dynamic content.
+- [2026-02-07] Explain-stream blocking -> Synchronous Ollama call froze entire event loop -> Wrapped in asyncio run_in_executor() for non-blocking LLM streaming.
 
 ---
 

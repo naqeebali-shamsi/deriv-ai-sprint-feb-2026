@@ -93,9 +93,11 @@ Open two browser tabs:
 
 **[Find an open case. Click the label button — mark it as "fraud".]**
 
-> "I just labeled this case as fraud. That label is now stored. When we have enough labels, we can retrain the model."
+> "I just labeled this case as fraud. That label is now stored. The system automatically checks if it has enough labeled data, and if so, retrains the model in the background — no button click needed.
+>
+> You can also trigger a manual retrain."
 
-**[Click the "Retrain" button in the Model panel.]**
+**[If auto-retrain hasn't fired yet, click the "Retrain" button in the Model panel.]**
 
 > "Watch the model version — it just incremented. The new model was trained on the analyst's feedback. Next time a similar transaction comes in, it'll be scored by this better model.
 >
@@ -160,7 +162,7 @@ Open two browser tabs:
 > "Regulatory compliance. In derivatives trading, model decisions must be auditable, deterministic, and reproducible. Our XGBoost model makes the approve/review/block decision — it's fast, explainable, and version-controlled. The LLM only generates the analyst-facing explanation. This follows Federal Reserve SR 11-7 guidance on model risk management. Most AI projects let the LLM decide everything — that wouldn't survive a compliance audit in financial services."
 
 ### "Doesn't retraining on every label risk degrading the model?"
-> "Good question — we don't do online learning where each label nudges the model. Every retrain builds a fresh model from scratch on the full labeled dataset. So one bad label can't snowball. We also gate on minimum sample counts — the system won't retrain with fewer than 10 samples per class — and every model version saves its metrics so you can see if performance degrades. In production you'd add three things: a validation holdout that the new model must beat before promotion, automatic rollback if live precision drops, and a label review workflow where a second analyst confirms high-impact labels. But the key insight is that the system can retrain at all from analyst feedback — most fraud platforms require a data science team to do that offline."
+> "Good question — we don't do online learning where each label nudges the model. Every retrain builds a fresh model from scratch on the full labeled dataset. So one bad label can't snowball. We also gate on minimum sample counts — the system won't retrain with fewer than 10 samples per class — and every model version saves its metrics so you can see if performance degrades. The system auto-retrains in the background once sufficient labels accumulate, so analysts never have to think about it. In production you'd add three things: a validation holdout that the new model must beat before promotion, automatic rollback if live precision drops, and a label review workflow where a second analyst confirms high-impact labels. But the key insight is that the system can retrain at all from analyst feedback — most fraud platforms require a data science team to do that offline."
 
 ### "What would you build next?"
 > "Tool use for the LLM. Right now, we pre-fetch all data and hand it to Llama as a report. The next step is giving the LLM tools — let it query the database, explore the transaction graph, check account history — and drive its own investigation loop. We'd deploy this on AWS Bedrock AgentCore Runtime, which provides the agent execution environment, MCP-compatible tool gateway, and cross-session memory we'd need. That takes it from a narrator to a true investigative agent."

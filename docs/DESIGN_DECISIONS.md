@@ -44,8 +44,8 @@ What no one else demos is the **complete visible loop**: stream → score → ca
 | ML Model (XGBoost) | B+ | D | Correct choice for constraints; single model with no ensemble/unsupervised layer |
 | Feature Engineering (34 features) | B+ | C | Includes velocity, device/IP reuse, geo risk, card BIN, and pattern-derived features |
 | LLM Integration (llama3.1:8b) | A- | C+ | Architecture is right (explain, don't score); 8B reasoning depth is shallow |
-| Self-Learning Loop | B- | F | Selection bias, no class balancing, no champion-challenger |
-| Graph Mining (networkx) | B+ | F | Algorithmically interesting; doesn't feed back into scoring |
+| Self-Learning Loop | B | F | Auto-retrain after labels implemented; selection bias and no champion-challenger remain |
+| Graph Mining (networkx) | B+ | F | Algorithmically interesting; 7 pattern features now feed into ML scorer |
 | Systems Architecture | A (for hackathon) | F | Single process, SQLite, in-memory bus — all correct for demo, all wrong for production |
 | Fraud Typology Accuracy | B- | C- | Spoofing is fundamentally mismodeled; missing chargeback fraud and ATO |
 | Regulatory Defensibility | N/A | D+ | Right architectural intent; missing order-level surveillance, STOR/SAR filing, audit trail |
@@ -203,9 +203,9 @@ meta["card_bin"]         # Card risk — NOW FEATURIZED (card_bin_risk)
 
 ### Missing Feature Categories (Priority Order)
 
-1. **From existing collected data** (highest ROI, data already flows through): `ip_country_risk`, `device_reuse_count`, `ip_reuse_count`, `session_txn_count`, `card_bin_risk` — 7 features, zero new data collection needed
+1. ~~**From existing collected data**~~ **DONE (Feb 7):** `ip_country_risk`, `device_reuse_count_24h`, `ip_reuse_count_24h`, `card_bin_risk` are now featurized. `session_txn_count` remains unused.
 2. **Account-level aggregates**: `account_age_days`, `sender_historical_fraud_rate`, `sender_avg_amount`, `sender_amount_stddev`
-3. **Receiver-side features** (complete blind spot today): `receiver_in_degree_24h`, `receiver_total_inflow_24h`, `first_time_counterparty`
+3. ~~**Receiver-side features**~~ **DONE (Feb 7):** `receiver_txn_count_24h`, `receiver_amount_sum_24h`, `receiver_unique_senders_24h`, `first_time_counterparty` are now computed from velocity queries.
 
 ### Compulsory ML Scoring (No Rule Fallback)
 We now require a trained ML model for scoring. The rule-based fallback is removed to avoid false confidence and ensure the demo shows true model-driven decisions.
@@ -315,6 +315,8 @@ Production systems close this loop: graph features (is the sender in a ring? wha
 
 The flow works: label case → collect labeled data → train new model → version it → swap into scorer. The demonstrated improvement from F1 0.57 → 0.967 in one retraining cycle is real.
 
+**UPDATE (Feb 7):** Auto-retrain is now implemented. After an analyst labels a case, the system checks if minimum sample thresholds per class are met and automatically triggers a retrain in the background. Manual retrain via `POST /retrain` is still available.
+
 ### Five Structural Pitfalls
 
 **1. Selection Bias (Most Serious)**
@@ -380,7 +382,7 @@ Everything runs in one uvicorn process: FastAPI, ML scoring, graph mining, SSE s
 | # | Failure Mode | Trigger | Duration | Impact |
 |---|-------------|---------|----------|--------|
 | 1 | **SQLite write lock** | ~100 TPS | Continuous | All requests serialize; latency >500ms |
-| 2 | **Ollama blocks event loop** | Single "AI Explain" click while LLM is slow | Up to 30 seconds | Entire backend frozen |
+| 2 | **Ollama blocks event loop** | Single "AI Explain" click while LLM is slow | Up to 30 seconds | **MITIGATED (Feb 7):** explain-stream now runs Ollama in thread executor; event loop stays responsive |
 | 3 | **Pattern mining CPU starvation** | `nx.simple_cycles` on dense graph | 2-30 seconds | Entire backend frozen |
 | 4 | **SSE connection leak** | Clients disconnect through proxy | Permanent until restart | Growing memory, O(N) event publish |
 | 5 | **Model retraining GIL lock** | POST /retrain with >1K samples | 5-60 seconds | Entire backend frozen |
@@ -406,7 +408,7 @@ Everything runs in one uvicorn process: FastAPI, ML scoring, graph mining, SSE s
 | Fraud Type | Accuracy | Issue |
 |-----------|----------|-------|
 | **Wash Trading** | GOOD | Correctly models circular fund flows. Limitation: real wash trading at a derivatives platform involves offsetting positions (long+short), not just transfers. |
-| **Bonus Abuse** | GOOD concept, BROKEN detection | Simulator generates shared device/IP signals. **Scorer never reads them.** ML model literally cannot detect bonus abuse. |
+| **Bonus Abuse** | GOOD concept, NOW FUNCTIONAL | Simulator generates shared device/IP signals. **UPDATE (Feb 7):** `device_reuse_count_24h` and `ip_reuse_count_24h` are now featurized in the scorer. ML model can detect bonus abuse via shared device/IP patterns. |
 | **Structuring** | PARTIAL | $1K threshold isn't a real regulatory threshold. No customer segmentation = every active trader triggers structuring alerts. |
 | **Spoofing** | **FUNDAMENTALLY MISMODELED** | Simulator generates large completed transfers and labels them "spoofing." Real spoofing is orders placed and cancelled before execution. The system has no concept of order lifecycle. |
 | **Velocity Abuse** | WEAK | Not a recognized fraud taxonomy term. Velocity is a characteristic of other fraud types, not a type itself. |
@@ -502,7 +504,7 @@ The API returns risk scores and decisions for every transaction (enabling model 
 |-----------|-----------------|---------------|
 | Wash Trading | Use 7+ intermediaries (bypasses length_bound=6); spread legs across multiple days (bypasses 24h window) | Minutes |
 | Spoofing | Already undetectable (system has no order lifecycle data) | N/A |
-| Bonus Abuse | Already undetectable at ML level (device/IP never featurized) | N/A |
+| Bonus Abuse | Detectable via device/IP reuse features (featurized Feb 7) | Minutes (rotate devices, use VPN) |
 | Structuring | Use 50+ accounts instead of 3; 1-2 txns/day/account; amounts mimicking legitimate distribution | Minutes |
 | Velocity | Stay under 6 txns/hour threshold; rotate across 10 accounts | Minutes |
 
@@ -533,7 +535,7 @@ Fraud user IDs encode the fraud type: `ring_a_1`, `smurfer_2`, `bonus_3`, `spoof
 | Graph pattern mining | **Strong proof-of-concept** | Algorithmically interesting; the real jewel of the project |
 | LLM case explanations | **Toy → PoC boundary** | Currently a narrator, not a reasoning agent; golden path is pre-canned |
 | Real-time streaming | **Proof-of-concept** | SSE works for demo; in-memory bus has no persistence or replay |
-| UI/visualization | **Toy** (currently) | Static HTML mockup; pixel art canvas engine built but not assembled |
+| UI/visualization | **Proof-of-concept** | Orbital Greenhouse canvas UI functional with live SSE data, XSS-sanitized rendering, Start/Stop controls |
 
 ### The 10x Insight We're Standing Next To
 

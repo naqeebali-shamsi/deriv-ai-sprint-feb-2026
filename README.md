@@ -106,9 +106,11 @@ python scripts/validate_schemas.py         # Validate schemas
 
 - **Multi-Agent LLM Explanations** -- When `LLM_MULTI_AGENT=true`, 3 specialist analysts (Behavioral, Network/Pattern, Compliance) produce parallel analyses, synthesized by a 4th Lead Analyst into a single investigation report.
 - **Active Learning** -- `GET /cases/suggested` returns cases sorted by model uncertainty (risk score closest to 0.5), prioritizing the most informative cases for analyst labeling.
+- **Auto-Retrain** -- After each analyst label, the system checks if minimum sample thresholds are met and automatically retrains the model in the background. Manual retrain via `POST /retrain` is also available.
 - **Investigation Timeline** -- Every case explanation includes a timestamped step-by-step investigation timeline tracking features, patterns, LLM calls, and synthesis with millisecond precision.
 - **Pattern-to-ML Feedback Loop** -- 7 graph-derived features (`sender_in_ring`, `sender_is_hub`, `sender_in_velocity_cluster`, `sender_in_dense_cluster`, `receiver_in_ring`, `receiver_is_hub`, `pattern_count_sender`) flow from pattern mining back into the ML scorer at scoring time.
-- **SSE Real-Time Events** -- Server-Sent Events stream (`GET /stream/events`) with 7 event types (`transaction`, `case_created`, `case_labeled`, `retrain`, `pattern`, `simulator_*`, `heartbeat`) and 15-second keepalive heartbeats.
+- **SSE Real-Time Events** -- Server-Sent Events stream (`GET /stream/events`) with 7 event types (`transaction`, `case_created`, `case_labeled`, `retrain`, `pattern`, `simulator_*`, `heartbeat`) and 15-second keepalive heartbeats. Events fire from the core POST /transactions endpoint regardless of whether the embedded or external simulator is used.
+- **Hero Transaction Golden Path** -- Transactions with `metadata.demo_hero` receive a score floor of 0.92 and a pre-canned LLM explanation, guaranteeing 100% demo reliability for the critical demo flow.
 - **Adversarial Testing Suite** -- 5 evasion-strategy generators in `sim/adversarial.py` (`generate_subtle_structuring`, `generate_stealth_wash_trade`, `generate_slow_velocity_abuse`, `generate_legit_looking_fraud`, `generate_bonus_abuse_evasion`) for red-team evaluation.
 
 ## Project Structure
