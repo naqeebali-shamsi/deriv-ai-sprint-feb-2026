@@ -514,30 +514,34 @@ async def run_mining_job_async(db) -> list[PatternCard]:
     """
     now = datetime.utcnow().isoformat()
 
-    # Clean up over-sized false-positive patterns
-    MAX_LEGITIMATE_PATTERN_SIZE = 20
+    # Clean up over-sized false-positive SCC patterns (rings/dense only — NOT hubs)
+    # Hubs naturally have many member_ids (hub + all connected nodes); that's expected.
+    MAX_SCC_PATTERN_SIZE = 20
+    SCC_TYPES = ("cycle", "dense_subgraph")
     try:
         count_cursor = await db.execute(
             """SELECT COUNT(*) FROM pattern_cards
                WHERE status = 'active'
                AND detection_rule IS NOT NULL
+               AND json_extract(detection_rule, '$.type') IN ('cycle', 'dense_subgraph')
                AND json_array_length(json_extract(detection_rule, '$.member_ids')) > ?""",
-            (MAX_LEGITIMATE_PATTERN_SIZE,),
+            (MAX_SCC_PATTERN_SIZE,),
         )
         count_row = await count_cursor.fetchone()
         stale_count = count_row[0] if count_row else 0
         if stale_count > 0:
-            logger.info("Cleaning up %d oversized pattern cards (member_ids > %d)", stale_count, MAX_LEGITIMATE_PATTERN_SIZE)
+            logger.info("Cleaning up %d oversized SCC pattern cards (member_ids > %d)", stale_count, MAX_SCC_PATTERN_SIZE)
             await db.execute(
                 """DELETE FROM pattern_cards
                    WHERE status = 'active'
                    AND detection_rule IS NOT NULL
+                   AND json_extract(detection_rule, '$.type') IN ('cycle', 'dense_subgraph')
                    AND json_array_length(json_extract(detection_rule, '$.member_ids')) > ?""",
-                (MAX_LEGITIMATE_PATTERN_SIZE,),
+                (MAX_SCC_PATTERN_SIZE,),
             )
             await db.commit()
     except Exception:
-        logger.info("json1 not available, using Python-side cleanup for oversized patterns")
+        logger.info("json1 not available, using Python-side cleanup for oversized SCC patterns")
         cursor = await db.execute(
             "SELECT pattern_id, detection_rule FROM pattern_cards WHERE status = 'active' AND detection_rule IS NOT NULL"
         )
@@ -546,13 +550,16 @@ async def run_mining_job_async(db) -> list[PatternCard]:
         for pid, rule_json in rows:
             try:
                 rule = json.loads(rule_json)
+                rule_type = rule.get("type", "")
+                if rule_type not in SCC_TYPES:
+                    continue
                 member_ids = rule.get("member_ids", [])
-                if isinstance(member_ids, list) and len(member_ids) > MAX_LEGITIMATE_PATTERN_SIZE:
+                if isinstance(member_ids, list) and len(member_ids) > MAX_SCC_PATTERN_SIZE:
                     to_delete.append(pid)
             except (json.JSONDecodeError, TypeError):
                 continue
         if to_delete:
-            logger.info("Cleaning up %d oversized pattern cards (Python fallback)", len(to_delete))
+            logger.info("Cleaning up %d oversized SCC pattern cards (Python fallback)", len(to_delete))
             for pid in to_delete[:100]:
                 await db.execute("DELETE FROM pattern_cards WHERE pattern_id = ?", (pid,))
             await db.commit()
