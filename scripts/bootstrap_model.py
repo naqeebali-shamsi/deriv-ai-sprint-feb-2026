@@ -24,6 +24,61 @@ def _clear_existing_models() -> None:
         path.unlink(missing_ok=True)
 
 
+def _inject_velocity_context(txn: dict, is_fraud: bool) -> dict:
+    """Inject synthetic velocity/pattern features for bootstrap training.
+
+    Without this, the model sees zero velocity data and learns only
+    amount/type features (22% recall). Fraud samples get elevated
+    velocity signals; legit samples get low/normal velocity signals.
+    """
+    if is_fraud:
+        txn["sender_txn_count_1h"] = random.randint(4, 18)
+        txn["sender_txn_count_24h"] = random.randint(10, 60)
+        txn["sender_amount_sum_1h"] = random.uniform(5000, 40000)
+        txn["sender_unique_receivers_24h"] = random.randint(3, 15)
+        txn["time_since_last_txn_minutes"] = random.uniform(0.2, 5)
+        txn["device_reuse_count_24h"] = random.randint(0, 3)
+        txn["ip_reuse_count_24h"] = random.randint(0, 5)
+        txn["receiver_txn_count_24h"] = random.randint(5, 80)
+        txn["receiver_amount_sum_24h"] = random.uniform(3000, 60000)
+        txn["receiver_unique_senders_24h"] = random.randint(2, 20)
+        txn["first_time_counterparty"] = random.random() < 0.7
+        # Pattern features — some fraud is in known patterns
+        if random.random() < 0.4:
+            txn["sender_in_ring"] = 1.0
+            txn["receiver_in_ring"] = random.choice([0.0, 1.0])
+        if random.random() < 0.3:
+            txn["sender_is_hub"] = 1.0
+        if random.random() < 0.3:
+            txn["sender_in_velocity_cluster"] = 1.0
+        if random.random() < 0.2:
+            txn["sender_in_dense_cluster"] = 1.0
+        txn["pattern_count_sender"] = random.uniform(0, 3)
+    else:
+        # Legit: low/normal velocity with realistic overlap
+        # ~15% of legit users are "power users" with moderate velocity
+        power_user = random.random() < 0.15
+        if power_user:
+            txn["sender_txn_count_1h"] = random.randint(3, 10)
+            txn["sender_txn_count_24h"] = random.randint(8, 30)
+            txn["sender_amount_sum_1h"] = random.uniform(2000, 15000)
+            txn["sender_unique_receivers_24h"] = random.randint(2, 8)
+            txn["time_since_last_txn_minutes"] = random.uniform(2, 20)
+        else:
+            txn["sender_txn_count_1h"] = random.randint(0, 3)
+            txn["sender_txn_count_24h"] = random.randint(0, 10)
+            txn["sender_amount_sum_1h"] = random.uniform(0, 4000)
+            txn["sender_unique_receivers_24h"] = random.randint(0, 3)
+            txn["time_since_last_txn_minutes"] = random.uniform(10, 180)
+        txn["device_reuse_count_24h"] = random.randint(0, 1)
+        txn["ip_reuse_count_24h"] = random.randint(0, 2)
+        txn["receiver_txn_count_24h"] = random.randint(0, 30)
+        txn["receiver_amount_sum_24h"] = random.uniform(0, 15000)
+        txn["receiver_unique_senders_24h"] = random.randint(0, 8)
+        txn["first_time_counterparty"] = random.random() < 0.35
+    return txn
+
+
 def bootstrap(count: int, fraud_rate: float, force: bool) -> int:
     if force:
         _clear_existing_models()
@@ -35,6 +90,7 @@ def bootstrap(count: int, fraud_rate: float, force: bool) -> int:
     for _ in range(count):
         is_fraud = random.random() < fraud_rate
         txn = generate_transaction(is_fraud=is_fraud)
+        txn = _inject_velocity_context(txn, is_fraud)
         features = compute_features(txn)
         samples.append([features.get(name, 0.0) for name in FEATURE_NAMES])
         labels.append(1 if is_fraud else 0)

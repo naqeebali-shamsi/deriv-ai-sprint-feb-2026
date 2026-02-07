@@ -474,7 +474,7 @@ async def list_transactions(limit: int = Query(default=50, ge=0, le=1000)):
 
 # --- Cases ---
 @app.get("/cases", response_model=list[CaseOut])
-async def list_cases(status: str | None = None, limit: int = Query(default=50, ge=0, le=1000)):
+async def list_cases(status: Literal["open", "in_review", "closed"] | None = None, limit: int = Query(default=50, ge=1, le=1000)):
     """List cases, optionally filtered by status."""
     async with get_db() as db:
         if status:
@@ -537,6 +537,29 @@ async def label_case(case_id: str, label_in: LabelIn):
         "new_status": new_status,
         "timestamp": labeled_at,
     })
+
+    # Auto-retrain: check if we have enough labels and retrain in background
+    if label_in.decision in ("fraud", "not_fraud"):
+        async def _maybe_auto_retrain():
+            try:
+                async with get_db() as db2:
+                    cursor = await db2.execute(
+                        "SELECT COUNT(*) FROM analyst_labels WHERE decision = 'fraud'"
+                    )
+                    fraud_count = (await cursor.fetchone())[0]
+                    cursor = await db2.execute(
+                        "SELECT COUNT(*) FROM analyst_labels WHERE decision = 'not_fraud'"
+                    )
+                    legit_count = (await cursor.fetchone())[0]
+
+                if fraud_count >= MIN_SAMPLES_PER_CLASS and legit_count >= MIN_SAMPLES_PER_CLASS:
+                    async with _retrain_lock:
+                        await _do_retrain(write_snapshot=True)
+                    logger.info("Auto-retrain completed after label threshold reached")
+            except Exception as e:
+                logger.warning(f"Auto-retrain skipped: {e}")
+
+        asyncio.create_task(_maybe_auto_retrain())
 
     return {"label_id": label_id, "case_id": case_id, "new_status": new_status}
 
@@ -737,8 +760,12 @@ async def explain_case_stream(case_id: str):
     }
     prompt = _build_llm_prompt(txn, risk_score, decision, features, reasons, [], model_version)
 
-    def generate():
-        for chunk, done in _call_ollama_stream(prompt):
+    async def generate():
+        # Run synchronous Ollama streaming in a thread to avoid blocking the event loop
+        chunks = await asyncio.get_event_loop().run_in_executor(
+            None, lambda: list(_call_ollama_stream(prompt))
+        )
+        for chunk, done in chunks:
             yield f"data: {json.dumps({'text': chunk, 'done': done})}\n\n"
         yield "data: [DONE]\n\n"
 
@@ -1200,32 +1227,9 @@ async def _run_embedded_simulator():
                     json=txn, timeout=5,
                 )
                 if resp.status_code == 200:
-                    data = resp.json()
-                    # Publish event to SSE
-                    _publish_event({
-                        "type": "transaction",
-                        "txn_id": data["txn_id"],
-                        "amount": data["amount"],
-                        "currency": data["currency"],
-                        "sender_id": data["sender_id"],
-                        "receiver_id": data["receiver_id"],
-                        "txn_type": data["txn_type"],
-                        "risk_score": data.get("risk_score", 0),
-                        "decision": data.get("decision", "approve"),
-                        "is_fraud_ground_truth": txn.get("is_fraud_ground_truth", False),
-                        "fraud_type": (txn.get("metadata") or {}).get("fraud_type"),
-                        "timestamp": data["timestamp"],
-                    })
-
-                    # If case was created, publish that too
-                    if data.get("decision") in ("review", "block"):
-                        _publish_event({
-                            "type": "case_created",
-                            "txn_id": data["txn_id"],
-                            "risk_score": data.get("risk_score", 0),
-                            "decision": data["decision"],
-                            "timestamp": data["timestamp"],
-                        })
+                    # SSE events are now published by the POST /transactions
+                    # endpoint itself, so no duplicate publish needed here.
+                    pass
 
                 count += 1
                 await asyncio.sleep(1.0 / _sim_config["tps"])

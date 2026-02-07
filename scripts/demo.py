@@ -87,7 +87,7 @@ def main():
     py = sys.executable  # Use same Python interpreter
 
     # Step 1: Init DB
-    print("\n[1/6] Initializing database...")
+    print("\n[1/7] Initializing database...")
     db_path = PROJECT_ROOT / "app.db"
     if db_path.exists():
         db_path.unlink()

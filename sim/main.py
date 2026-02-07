@@ -93,17 +93,20 @@ def generate_legit_transaction() -> dict:
     while receiver == sender:
         receiver = random.choice(NORMAL_USERS)
 
+    txn_type = random.choice(["transfer", "deposit", "withdrawal", "payment"])
+    channel = random.choices(["web", "mobile", "api", "branch"], weights=[40, 35, 15, 10])[0]
+
     return {
         "amount": amount,
         "currency": random.choice(["USD", "USD", "USD", "EUR", "GBP"]),  # mostly USD
         "sender_id": sender,
         "receiver_id": receiver,
-        "txn_type": random.choice(["transfer", "deposit", "withdrawal", "payment"]),
-        "channel": random.choices(["web", "mobile", "api", "branch"], weights=[40, 35, 15, 10])[0],
+        "txn_type": txn_type,
+        "channel": channel,
         "ip_address": fake.ipv4(),
         "device_id": str(uuid4())[:8],
         "is_fraud_ground_truth": False,
-        "metadata": _generate_enterprise_metadata("transfer", "web"),
+        "metadata": _generate_enterprise_metadata(txn_type, channel),
     }
 
 

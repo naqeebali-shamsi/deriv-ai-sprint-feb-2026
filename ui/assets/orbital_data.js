@@ -454,14 +454,14 @@ class OrbitalDataLayer {
       div.dataset.pod = c.txnId || caseId;
       div.innerHTML = `
         <div class="flex justify-between items-center mb-1">
-          <span class="pixel-text text-xs text-${color}">${(c.txnId || caseId).slice(0, 8)}</span>
+          <span class="pixel-text text-xs text-${color}">${this._esc((c.txnId || caseId).slice(0, 8))}</span>
           <span class="text-xs text-${color} font-bold">${pct}</span>
         </div>
         <div class="bar-track mb-1.5"><div class="bar-fill ${barClass}" style="width:${pct}%"></div></div>
-        <div class="text-xs text-white/40 mb-2">${this._capitalize(label)}</div>
+        <div class="text-xs text-white/40 mb-2">${this._esc(this._capitalize(label))}</div>
         <div class="flex gap-2">
-          <button class="btn-action" data-action="clear" data-case="${caseId}">&#9989; CLEAR</button>
-          <button class="btn-action" data-action="investigate" data-case="${caseId}">&#128270; INVESTIGATE</button>
+          <button class="btn-action" data-action="clear" data-case="${this._esc(caseId)}">&#9989; CLEAR</button>
+          <button class="btn-action" data-action="investigate" data-case="${this._esc(caseId)}">&#128270; INVESTIGATE</button>
         </div>`;
       container.appendChild(div);
     }
@@ -495,7 +495,7 @@ class OrbitalDataLayer {
       div.className = 'pattern-card';
       div.innerHTML = `
         <span class="text-lg flex-none w-6 text-center">${icon}</span>
-        <span class="flex-1">${p.name}</span>
+        <span class="flex-1">${this._esc(p.name)}</span>
         <span class="${cls} text-xs font-bold">${conf}%</span>`;
       container.appendChild(div);
     }
@@ -537,16 +537,28 @@ class OrbitalDataLayer {
 
   _capitalize(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, ' ') : ''; }
 
+  /** Escape HTML special characters to prevent XSS via innerHTML. */
+  _esc(s) {
+    if (!s) return '';
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;');
+  }
+
   // --------------------------------------------------------------------------
   // Button Wiring (call after DOM ready)
   // --------------------------------------------------------------------------
   wireControls() {
-    // Start / Stop
-    document.querySelector('#btn-start')?.addEventListener('click', () => {
-      this.startSimulator(this._readSimConfig()).catch(console.error);
+    // Start / Stop (toggle visibility)
+    const btnStart = document.querySelector('#btn-start');
+    const btnStop  = document.querySelector('#btn-stop');
+    btnStart?.addEventListener('click', () => {
+      this.startSimulator(this._readSimConfig())
+        .then(() => { btnStart.style.display = 'none'; btnStop.style.display = ''; })
+        .catch(console.error);
     });
-    document.querySelector('#btn-stop')?.addEventListener('click', () => {
-      this.stopSimulator().catch(console.error);
+    btnStop?.addEventListener('click', () => {
+      this.stopSimulator()
+        .then(() => { btnStop.style.display = 'none'; btnStart.style.display = ''; })
+        .catch(console.error);
     });
 
     // Fraud rate slider

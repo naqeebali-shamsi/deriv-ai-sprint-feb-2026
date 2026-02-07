@@ -380,13 +380,13 @@
         <div class="flex items-center gap-5 pixel-text text-base">
             <span class="text-lg text-secondary glow-green tracking-wider">&#127793; ORBITAL GREENHOUSE</span>
             <span class="text-white/50">|</span>
-            <span class="text-white/60">Pods: <span id="hud-pods" class="text-primary font-bold">142</span></span>
-            <span class="text-white/60">Threats: <span id="hud-threats" class="text-danger font-bold">12</span></span>
-            <span class="text-white/60">Garden Health: <span id="hud-health" class="text-secondary font-bold">89%</span></span>
+            <span class="text-white/60">Pods: <span id="hud-pods" class="text-primary font-bold">0</span></span>
+            <span class="text-white/60">Threats: <span id="hud-threats" class="text-danger font-bold">0</span></span>
+            <span class="text-white/60">Garden Health: <span id="hud-health" class="text-secondary font-bold">--</span></span>
         </div>
         <!-- Right cluster -->
         <div class="flex items-center gap-5 pixel-text text-base">
-            <span class="text-scanner">Defense: <span id="hud-version">v1.2.0</span></span>
+            <span class="text-scanner">Defense: <span id="hud-version">--</span></span>
             <span class="flex items-center gap-2">
                 <span class="status-blink bg-secondary"></span>
                 <span id="hud-status" class="text-secondary glow-green">ONLINE</span>
@@ -473,7 +473,7 @@
                 <!-- ---- Start / Stop ---- -->
                 <section class="flex flex-col gap-2">
                     <button id="btn-start" class="btn-primary w-full pixel-text text-lg tracking-wider">START SIMULATION</button>
-                    <button id="btn-stop"  class="btn-stop   w-full pixel-text text-lg tracking-wider">STOP</button>
+                    <button id="btn-stop"  class="btn-stop   w-full pixel-text text-lg tracking-wider" style="display:none">STOP</button>
                 </section>
 
                 <div class="section-line"></div>
@@ -487,7 +487,7 @@
                         <div>
                             <div class="flex justify-between mb-1">
                                 <span class="text-white/60">Throughput</span>
-                                <span id="metric-tps" class="text-secondary font-bold">2.3 TPS</span>
+                                <span id="metric-tps" class="text-secondary font-bold">-- TPS</span>
                             </div>
                         </div>
 
@@ -495,27 +495,27 @@
                         <div>
                             <div class="flex justify-between mb-1">
                                 <span class="text-white/60">False Positive</span>
-                                <span id="metric-fpr" class="text-primary font-bold">11.2%</span>
+                                <span id="metric-fpr" class="text-primary font-bold">--%</span>
                             </div>
-                            <div class="bar-track"><div id="bar-fpr" class="bar-fill bar-amber" style="width:11.2%"></div></div>
+                            <div class="bar-track"><div id="bar-fpr" class="bar-fill bar-amber" style="width:0%"></div></div>
                         </div>
 
                         <!-- Precision -->
                         <div>
                             <div class="flex justify-between mb-1">
                                 <span class="text-white/60">Precision</span>
-                                <span id="metric-prec" class="text-secondary font-bold">89%</span>
+                                <span id="metric-prec" class="text-secondary font-bold">--%</span>
                             </div>
-                            <div class="bar-track"><div id="bar-prec" class="bar-fill bar-green" style="width:89%"></div></div>
+                            <div class="bar-track"><div id="bar-prec" class="bar-fill bar-green" style="width:0%"></div></div>
                         </div>
 
                         <!-- Recall -->
                         <div>
                             <div class="flex justify-between mb-1">
                                 <span class="text-white/60">Recall</span>
-                                <span id="metric-recall" class="text-secondary font-bold">72%</span>
+                                <span id="metric-recall" class="text-secondary font-bold">--%</span>
                             </div>
-                            <div class="bar-track"><div id="bar-recall" class="bar-fill bar-green" style="width:72%"></div></div>
+                            <div class="bar-track"><div id="bar-recall" class="bar-fill bar-green" style="width:0%"></div></div>
                         </div>
 
                     </div>
@@ -556,26 +556,26 @@
                 </div>
 
                 <!-- ---- Active Alert Card ---- -->
-                <div id="alert-card" class="pixel-border bg-deep-space p-3">
+                <div id="alert-card" class="pixel-border bg-deep-space p-3" style="display:none">
                     <div class="flex items-center justify-between mb-2">
                         <span class="text-danger font-bold pixel-text tracking-wide">&#9888; PATTERN MATCH</span>
-                        <span class="text-xs text-scanner">98% conf</span>
+                        <span class="text-xs text-scanner" id="alert-conf"></span>
                     </div>
                     <div class="text-sm space-y-1">
                         <div class="flex justify-between">
                             <span class="text-white/40">Pod:</span>
-                            <span class="text-primary" id="alert-pod">TXN-7f3a</span>
+                            <span class="text-primary" id="alert-pod"></span>
                         </div>
                         <div class="flex justify-between">
                             <span class="text-white/40">Pattern:</span>
-                            <span class="text-danger" id="alert-pattern">Wash Ring</span>
+                            <span class="text-danger" id="alert-pattern"></span>
                         </div>
                         <div class="flex justify-between">
                             <span class="text-white/40">Risk:</span>
-                            <span class="text-danger font-bold" id="alert-risk">CRITICAL</span>
+                            <span class="text-danger font-bold" id="alert-risk"></span>
                         </div>
                     </div>
-                    <p class="mt-2 text-xs text-white/40" id="alert-detail">Detected circular flow: A&#8594;B&#8594;C&#8594;A in 47 sec</p>
+                    <p class="mt-2 text-xs text-white/40" id="alert-detail"></p>
                     <!-- Mini spark-line placeholder (SVG drawn by JS or static) -->
                     <div class="mt-2 h-10 bg-deep-space/60 border border-danger/20 rounded-sm overflow-hidden">
                         <svg class="w-full h-full" preserveAspectRatio="none" viewBox="0 0 120 40">
@@ -590,49 +590,7 @@
                 <section>
                     <h3 class="pixel-text text-sm text-primary tracking-wider mb-2">INSPECTION QUEUE</h3>
                     <div id="inspection-queue" class="flex flex-col gap-2">
-
-                        <!-- Queue item 1 -->
-                        <div class="queue-item" data-pod="TXN-7f3a">
-                            <div class="flex justify-between items-center mb-1">
-                                <span class="pixel-text text-xs text-danger">TXN-7f3a</span>
-                                <span class="text-xs text-danger font-bold">98</span>
-                            </div>
-                            <div class="bar-track mb-1.5"><div class="bar-fill bar-red" style="width:98%"></div></div>
-                            <div class="text-xs text-white/40 mb-2">Wash Trading</div>
-                            <div class="flex gap-2">
-                                <button class="btn-action" data-action="clear">&#9989; CLEAR</button>
-                                <button class="btn-action" data-action="investigate">&#128270; INVESTIGATE</button>
-                            </div>
-                        </div>
-
-                        <!-- Queue item 2 -->
-                        <div class="queue-item" data-pod="TXN-4b21">
-                            <div class="flex justify-between items-center mb-1">
-                                <span class="pixel-text text-xs text-primary">TXN-4b21</span>
-                                <span class="text-xs text-primary font-bold">67</span>
-                            </div>
-                            <div class="bar-track mb-1.5"><div class="bar-fill bar-amber" style="width:67%"></div></div>
-                            <div class="text-xs text-white/40 mb-2">Velocity Abuse</div>
-                            <div class="flex gap-2">
-                                <button class="btn-action" data-action="clear">&#9989; CLEAR</button>
-                                <button class="btn-action" data-action="investigate">&#128270; INVESTIGATE</button>
-                            </div>
-                        </div>
-
-                        <!-- Queue item 3 -->
-                        <div class="queue-item" data-pod="TXN-9c8d">
-                            <div class="flex justify-between items-center mb-1">
-                                <span class="pixel-text text-xs text-primary">TXN-9c8d</span>
-                                <span class="text-xs text-primary font-bold">54</span>
-                            </div>
-                            <div class="bar-track mb-1.5"><div class="bar-fill bar-amber" style="width:54%"></div></div>
-                            <div class="text-xs text-white/40 mb-2">Spoofing</div>
-                            <div class="flex gap-2">
-                                <button class="btn-action" data-action="clear">&#9989; CLEAR</button>
-                                <button class="btn-action" data-action="investigate">&#128270; INVESTIGATE</button>
-                            </div>
-                        </div>
-
+                        <div class="text-xs text-white/30 p-2 text-center">Waiting for flagged transactions...</div>
                     </div>
                 </section>
 
@@ -642,31 +600,7 @@
                 <section>
                     <h3 class="pixel-text text-sm text-primary tracking-wider mb-2">DISCOVERED PATTERNS</h3>
                     <div id="pattern-list" class="flex flex-col gap-1.5">
-                        <div class="pattern-card">
-                            <span class="text-lg flex-none w-6 text-center">&#127754;</span>
-                            <span class="flex-1">Wash Ring</span>
-                            <span class="text-secondary text-xs font-bold">87%</span>
-                        </div>
-                        <div class="pattern-card">
-                            <span class="text-lg flex-none w-6 text-center">&#9889;</span>
-                            <span class="flex-1">Velocity</span>
-                            <span class="text-secondary text-xs font-bold">91%</span>
-                        </div>
-                        <div class="pattern-card">
-                            <span class="text-lg flex-none w-6 text-center">&#127917;</span>
-                            <span class="flex-1">Spoofing</span>
-                            <span class="text-secondary text-xs font-bold">98%</span>
-                        </div>
-                        <div class="pattern-card">
-                            <span class="text-lg flex-none w-6 text-center">&#128260;</span>
-                            <span class="flex-1">Bonus Loop</span>
-                            <span class="text-primary text-xs font-bold">73%</span>
-                        </div>
-                        <div class="pattern-card">
-                            <span class="text-lg flex-none w-6 text-center">&#128202;</span>
-                            <span class="flex-1">Structuring</span>
-                            <span class="text-primary text-xs font-bold">68%</span>
-                        </div>
+                        <div class="text-xs text-white/30 p-2 text-center">No patterns discovered yet</div>
                     </div>
                 </section>
 
@@ -677,13 +611,7 @@
                     <h3 class="pixel-text text-sm text-primary tracking-wider mb-2">LEARNING LOG</h3>
                     <div id="learning-log" class="bg-deep-space border border-primary/20 rounded-sm max-h-[180px] overflow-y-auto custom-scroll text-xs">
                         <div class="p-2 flex flex-col gap-0.5">
-                            <div class="feed-line text-secondary">&#129504; Defense upgraded &mdash; Accuracy 72% &rarr; 89%</div>
-                            <div class="feed-line text-secondary">&#127793; New pattern: Velocity Cluster</div>
-                            <div class="feed-line text-scanner">&#9989; Pod TXN-4a2f cleared by operator</div>
-                            <div class="feed-line text-primary">&#128202; Retrain triggered: 147 new labels</div>
-                            <div class="feed-line text-secondary">&#129504; Model v1.2.0 deployed &mdash; F1: 0.81</div>
-                            <div class="feed-line text-scanner">&#9989; Pod TXN-3b9f cleared by operator</div>
-                            <div class="feed-line text-secondary">&#127793; Pattern confidence improved: Wash +12%</div>
+                            <div class="feed-line text-white/30">Awaiting system events...</div>
                         </div>
                     </div>
                 </section>
@@ -700,14 +628,7 @@
         <div class="h-full overflow-y-auto custom-scroll px-4 py-2 pixel-text text-xs leading-relaxed">
             <div class="text-scanner font-bold mb-1 tracking-wider">EVENT FEED</div>
             <div id="event-lines">
-                <div class="feed-line text-secondary">[23:47:12] Pod TXN-7f3a arrived &mdash; Scan initiated</div>
-                <div class="feed-line text-danger">[23:47:11] Pattern match: Wash Ring (98% confidence)</div>
-                <div class="feed-line text-scanner">[23:47:09] Scan complete: TXN-6d2c &mdash; CLEAR</div>
-                <div class="feed-line text-secondary">[23:47:05] Plant sprouted: Pattern "Velocity Cluster"</div>
-                <div class="feed-line text-primary">[23:47:01] Defense retrain complete &mdash; v1.2.0</div>
-                <div class="feed-line text-scanner">[23:46:58] Pod TXN-4a2f cleared by operator</div>
-                <div class="feed-line text-secondary">[23:46:55] Pod TXN-9c8d arrived &mdash; Scan initiated</div>
-                <div class="feed-line text-white/40">[23:46:52] Garden health check &mdash; All systems nominal</div>
+                <div class="feed-line text-white/30">Waiting for events...</div>
             </div>
         </div>
     </footer>
