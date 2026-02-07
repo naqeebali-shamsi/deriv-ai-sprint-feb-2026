@@ -13,6 +13,12 @@
 | [SCHEMA_CHANGES.md](SCHEMA_CHANGES.md) | Changelog for JSON Schema contracts in `/schemas` | Active log |
 | [DOCS_CHANGELOG.md](DOCS_CHANGELOG.md) | Documentation audit and restructuring changelog | Active log |
 
+## System Stats
+
+| Document | Description | Status |
+|----------|-------------|--------|
+| [SYSTEM_STATS.md](SYSTEM_STATS.md) | 5 defensible technical metrics with full code traceability: ML features, graph algorithms, autonomous actions, API surface, codebase size | Current |
+
 ## Business & Domain
 
 | Document | Description | Status |

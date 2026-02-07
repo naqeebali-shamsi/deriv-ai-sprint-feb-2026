@@ -98,6 +98,20 @@ Two autonomous feedback loops drive continuous improvement:
 
 ---
 
+## By The Numbers
+
+| Stat | Value | Source |
+|------|-------|--------|
+| ML Features | 35 (28 core + 7 graph-derived) | `risk/scorer.py` |
+| Model Validation | 5-fold stratified CV, F1 = 0.97 +/- 0.04 | `models/metrics_v0.1.0.json` |
+| Graph Algorithms | 4 (Tarjan SCC, HITS, sliding window, directed density) | `patterns/miner.py` |
+| Autonomous Actions | 7 agent behaviors, zero human trigger | `backend/main.py`, `risk/guardian.py` |
+| API Surface | 25 endpoints, 10 SSE event types, 9 DB indexes | `backend/main.py`, `backend/db.py` |
+
+> Full breakdown with feature lists, algorithm details, and code references: **[docs/SYSTEM_STATS.md](docs/SYSTEM_STATS.md)**
+
+---
+
 ## Tech Stack
 
 | Component | Technology |
