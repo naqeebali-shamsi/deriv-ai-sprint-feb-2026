@@ -41,6 +41,9 @@ class OrbitalDataLayer {
     this._lastDomUpdate = 0;
     this._DOM_INTERVAL = 333; // ~3 updates/sec
 
+    // Hydration guard — prevents double-hydration on reconnect
+    this._hydrated = false;
+
     // Public state
     this.state = {
       connected: false,
@@ -187,6 +190,8 @@ class OrbitalDataLayer {
         };
         // Use txn_id as case key until we get real case_id from label event
         const key = ev.case_id || ev.txn_id;
+        // Dedup: skip if this case was already loaded by hydrateState()
+        if (this.state.openCases.has(key)) break;
         this.state.openCases.set(key, c);
         this.state.metrics.cases_open = this.state.openCases.size;
         this._emit('case_created', { caseId: key, ...c });
@@ -331,11 +336,14 @@ class OrbitalDataLayer {
   }
 
   async configureSimulator(config) {
-    return this._post('/simulator/configure', {
+    const payload = {
       tps: config.tps ?? 1.0,
       fraud_rate: config.fraud_rate ?? 0.10,
       fraud_types: config.fraud_types ?? undefined,
-    });
+    };
+    const result = await this._post('/simulator/configure', payload);
+    try { localStorage.setItem('orbital_sim_config', JSON.stringify(payload)); } catch (e) { /* Safari private browsing */ }
+    return result;
   }
 
   async getSimulatorStatus() {
@@ -356,6 +364,184 @@ class OrbitalDataLayer {
   async getMetrics()      { const m = await this._get('/metrics'); Object.assign(this.state.metrics, m); this._markDomDirty(); return m; }
   async getPatterns()     { return this._get('/patterns?limit=15'); }
   async getCases(status, limit) { return this._get(`/cases?${status ? `status=${status}&` : ''}limit=${limit || 20}`); }
+
+  // --------------------------------------------------------------------------
+  // State Hydration (restore UI from backend on load/reconnect)
+  // --------------------------------------------------------------------------
+
+  /**
+   * Fetch persisted state from backend REST endpoints and populate the
+   * in-memory state + DOM so the UI shows existing data immediately after
+   * page load or SSE reconnect.
+   *
+   * Safe to call multiple times — the _hydrated guard prevents duplicate work.
+   */
+  async hydrateState() {
+    if (this._hydrated) return;
+    this._hydrated = true;
+
+    // Run fetches in parallel for speed; each is wrapped in its own
+    // try/catch so one failing endpoint doesn't break the others.
+    const [casesResult, txnsResult, simResult, patternsResult] = await Promise.allSettled([
+      this._get('/cases?status=open&limit=20'),
+      this._get('/transactions?limit=50'),
+      this._get('/simulator/status'),
+      this._get('/patterns?limit=15'),
+    ]);
+
+    // --- 1. Open cases -> inspection queue ---
+    try {
+      if (casesResult.status === 'fulfilled') {
+        const cases = casesResult.value;
+        for (const c of cases) {
+          const key = c.case_id || c.txn_id;
+          if (!this.state.openCases.has(key)) {
+            this.state.openCases.set(key, {
+              txnId: c.txn_id,
+              riskScore: c.risk_score,
+              decision: c.priority === 'high' ? 'block' : 'review',
+              fraudType: null,
+            });
+          }
+        }
+        this.state.metrics.cases_open = this.state.openCases.size;
+      }
+    } catch (e) {
+      console.warn('[OrbitalData] hydrateState: cases failed', e);
+    }
+
+    // --- 2. Recent transactions -> event feed + satellite orbits ---
+    try {
+      if (txnsResult.status === 'fulfilled') {
+        const txns = txnsResult.value;
+        // Transactions come newest-first from the API; reverse so we
+        // populate oldest-first and the newest end up at the top of the
+        // feed (prepend order).
+        const ordered = [...txns].reverse();
+        let approvedCount = 0;
+
+        for (const t of ordered) {
+          // Populate state (avoid duplicates by txn_id)
+          const already = this.state.recentTransactions.some(r => r.txnId === t.txn_id);
+          if (!already) {
+            this.state.recentTransactions.unshift({
+              txnId: t.txn_id,
+              amount: t.amount,
+              riskScore: t.risk_score,
+              decision: t.decision,
+              timestamp: t.timestamp,
+              fraudType: null,
+              senderId: t.sender_id,
+              receiverId: t.receiver_id,
+              txnType: t.txn_type,
+            });
+          }
+
+          // Add feed line for each
+          const color = t.decision === 'block' ? 'danger' :
+                        t.decision === 'review' ? 'primary' : 'scanner';
+          this._addFeedLine(
+            color,
+            `Pod ${t.txn_id.slice(0, 8)} -- ${(t.decision || 'approve').toUpperCase()} ($${Number(t.amount).toFixed(2)}, risk ${Math.round((t.risk_score || 0) * 100)}%)`
+          );
+
+          // Rebuild satellite orbits for approved txns
+          if (t.decision === 'approve' || !t.decision) {
+            approvedCount++;
+          }
+        }
+
+        // Cap state buffer
+        if (this.state.recentTransactions.length > 100) {
+          this.state.recentTransactions.length = 100;
+        }
+
+        // Add satellites in bulk (engine may not exist yet)
+        if (this.engine?.addSatellite) {
+          for (let i = 0; i < approvedCount; i++) {
+            this.engine.addSatellite();
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[OrbitalData] hydrateState: transactions failed', e);
+    }
+
+    // --- 3. Simulator config -> sync DOM controls ---
+    try {
+      if (simResult.status === 'fulfilled') {
+        const config = simResult.value;
+        this.state.simulatorRunning = config.running;
+
+        // Fraud rate slider
+        const frSlider = document.querySelector('#fraud-rate');
+        const frVal = document.querySelector('#fraud-rate-val');
+        if (frSlider && config.fraud_rate != null) {
+          frSlider.value = Math.round(config.fraud_rate * 100);
+          if (frVal) frVal.textContent = `${Math.round(config.fraud_rate * 100)}%`;
+        }
+
+        // TPS slider
+        const tpsSlider = document.querySelector('#tps');
+        const tpsVal = document.querySelector('#tps-val');
+        if (tpsSlider && config.tps != null) {
+          tpsSlider.value = config.tps;
+          if (tpsVal) tpsVal.textContent = config.tps;
+        }
+
+        // Fraud type checkboxes
+        if (config.fraud_types) {
+          for (const [ft, on] of Object.entries(config.fraud_types)) {
+            const cb = document.querySelector(`[data-fraud="${ft}"]`);
+            if (cb) cb.checked = !!on;
+          }
+        }
+
+        // Start/Stop button visibility
+        const btnStart = document.querySelector('#btn-start');
+        const btnStop = document.querySelector('#btn-stop');
+        if (config.running) {
+          if (btnStart) btnStart.style.display = 'none';
+          if (btnStop) btnStop.style.display = '';
+        } else {
+          if (btnStart) btnStart.style.display = '';
+          if (btnStop) btnStop.style.display = 'none';
+        }
+      }
+    } catch (e) {
+      console.warn('[OrbitalData] hydrateState: simulator config failed', e);
+    }
+
+    // --- 4. Patterns -> state + panel ---
+    try {
+      if (patternsResult.status === 'fulfilled') {
+        const patterns = patternsResult.value;
+        for (const p of patterns) {
+          const name = p.name;
+          // Dedup by name
+          if (!this.state.patterns.some(existing => existing.name === name)) {
+            this.state.patterns.push({
+              name: p.name,
+              type: p.pattern_type,
+              confidence: p.confidence,
+            });
+          }
+        }
+        if (this.state.patterns.length > 30) this.state.patterns.length = 30;
+      }
+    } catch (e) {
+      console.warn('[OrbitalData] hydrateState: patterns failed', e);
+    }
+
+    // Trigger a DOM refresh with all hydrated data
+    this._markDomDirty();
+    console.log('[OrbitalData] State hydrated:', {
+      cases: this.state.openCases.size,
+      transactions: this.state.recentTransactions.length,
+      patterns: this.state.patterns.length,
+      simulatorRunning: this.state.simulatorRunning,
+    });
+  }
 
   // --------------------------------------------------------------------------
   // DOM Update Loop (throttled via rAF)
@@ -623,6 +809,9 @@ class OrbitalDataLayer {
   // Button Wiring (call after DOM ready)
   // --------------------------------------------------------------------------
   wireControls() {
+    // Restore saved simulator config from localStorage before wiring listeners
+    this.restoreSimConfig();
+
     // Start / Stop (toggle visibility)
     const btnStart = document.querySelector('#btn-start');
     const btnStop  = document.querySelector('#btn-stop');
@@ -703,6 +892,39 @@ class OrbitalDataLayer {
       fraud_types[cb.dataset.fraud] = cb.checked;
     });
     return { tps, fraud_rate, fraud_types };
+  }
+
+  /** Restore simulator config from localStorage into DOM controls (no backend POST). */
+  restoreSimConfig() {
+    try {
+      const raw = localStorage.getItem('orbital_sim_config');
+      if (!raw) return;
+      const config = JSON.parse(raw);
+
+      // Restore TPS slider
+      const tpsSlider = document.querySelector('#tps');
+      const tpsVal    = document.querySelector('#tps-val');
+      if (tpsSlider && config.tps != null) {
+        tpsSlider.value = config.tps;
+        if (tpsVal) tpsVal.textContent = config.tps;
+      }
+
+      // Restore fraud rate slider
+      const frSlider = document.querySelector('#fraud-rate');
+      const frVal    = document.querySelector('#fraud-rate-val');
+      if (frSlider && config.fraud_rate != null) {
+        frSlider.value = Math.round(config.fraud_rate * 100);
+        if (frVal) frVal.textContent = `${Math.round(config.fraud_rate * 100)}%`;
+      }
+
+      // Restore fraud type checkboxes
+      if (config.fraud_types) {
+        for (const [ft, on] of Object.entries(config.fraud_types)) {
+          const cb = document.querySelector(`[data-fraud="${ft}"]`);
+          if (cb) cb.checked = !!on;
+        }
+      }
+    } catch (e) { /* corrupt or unavailable localStorage */ }
   }
 
   // --------------------------------------------------------------------------

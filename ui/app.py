@@ -88,17 +88,9 @@ def build_orbital_html(backend_url: str) -> str:
         window.__engine = engine;
         window.__data = dataLayer;
 
-        // Fetch initial state
+        // Fetch initial state: metrics + hydrate persisted cases/txns/patterns/sim config
         dataLayer.getMetrics();
-        dataLayer.getPatterns();
-        dataLayer.getSimulatorStatus().then(function(status) {{
-          if (status && status.running) {{
-            var startBtn = document.getElementById('btn-start');
-            var stopBtn = document.getElementById('btn-stop');
-            if (startBtn) startBtn.style.display = 'none';
-            if (stopBtn) stopBtn.style.display = 'block';
-          }}
-        }});
+        dataLayer.hydrateState();
 
         console.log('[OF] Orbital Fortress initialized', {{ backend: BACKEND_URL }});
       }}
