@@ -11,7 +11,6 @@ Why XGBoost over sklearn GradientBoosting:
 - Same API surface (sklearn-compatible), drop-in replacement
 """
 import json
-import math
 from datetime import datetime
 from pathlib import Path
 
@@ -19,7 +18,7 @@ import joblib
 import numpy as np
 from xgboost import XGBClassifier
 from sklearn.metrics import precision_score, recall_score, f1_score, roc_auc_score
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import StratifiedKFold, cross_val_score
 
 MODEL_DIR = Path(__file__).parent.parent / "models"
 MODEL_DIR.mkdir(exist_ok=True)
@@ -37,7 +36,8 @@ FEATURE_NAMES = [
     "is_small_deposit",
     "channel_web",
     "channel_api",
-    "hour_of_day",
+    "hour_sin",
+    "hour_cos",
     "is_weekend",
     "hour_risky",
     "sender_txn_count_1h",
@@ -63,7 +63,7 @@ FEATURE_NAMES = [
     "pattern_count_sender",
 ]
 
-MIN_SAMPLES_PER_CLASS = 10  # Minimum labeled samples per class to train
+MIN_SAMPLES_PER_CLASS = 30  # Minimum labeled samples per class to train
 
 
 def _version_sort_key(path: Path) -> tuple[int, ...]:
@@ -114,83 +114,28 @@ def compute_training_features(
     channel: str,
     velocity: dict | None = None,
 ) -> dict:
-    """Compute features for a single training sample.
+    """Compute features for a training sample.
 
-    Similar to scorer.compute_features but used during batch training.
+    Thin wrapper around scorer.compute_features to eliminate training-serving
+    feature skew. Builds a txn dict from the args and delegates to the single
+    source of truth.
     """
-    amount_normalized = min(amount / 10000, 1.0)
-    amount_log = math.log(amount + 1) / math.log(50001)
-    amount_high = 1.0 if amount > 5000 else (
-        amount / 5000 if amount > 2000 else 0.0
-    )
-    amount_small = 1.0 if amount < 100 else (
-        max(0.0, (500 - amount) / 400) if amount < 500 else 0.0
-    )
-
+    from risk.scorer import compute_features
     v = velocity or {}
-    return {
-        "amount_normalized": amount_normalized,
-        "amount_log": amount_log,
-        "amount_high": amount_high,
-        "amount_small": amount_small,
-        "is_transfer": 1.0 if txn_type == "transfer" else 0.0,
-        "is_withdrawal": 1.0 if txn_type == "withdrawal" else 0.0,
-        "is_deposit": 1.0 if txn_type == "deposit" else 0.0,
-        "is_payment": 1.0 if txn_type == "payment" else 0.0,
-        "is_small_deposit": 1.0 if (
-            txn_type == "deposit" and amount <= 100
-        ) else 0.0,
-        "channel_web": 1.0 if channel == "web" else 0.0,
-        "channel_api": 1.0 if channel == "api" else 0.0,
-        "hour_of_day": v.get("hour_of_day", 0.5),
-        "is_weekend": v.get("is_weekend", 0.0),
-        "hour_risky": v.get("hour_risky", 0.0),
-        "sender_txn_count_1h": min(
-            v.get("sender_txn_count_1h", 0) / 20.0, 1.0
-        ),
-        "sender_txn_count_24h": min(
-            v.get("sender_txn_count_24h", 0) / 100.0, 1.0
-        ),
-        "sender_amount_sum_1h": min(
-            v.get("sender_amount_sum_1h", 0) / 50000.0, 1.0
-        ),
-        "sender_unique_receivers_24h": min(
-            v.get("sender_unique_receivers_24h", 0) / 20.0, 1.0
-        ),
-        "time_since_last_txn_minutes": max(
-            0, 1.0 - (v.get("time_since_last_txn_minutes", 60) / 60.0)
-        ),
-        "device_reuse_count_24h": min(
-            v.get("device_reuse_count_24h", 0) / 5.0, 1.0
-        ),
-        "ip_reuse_count_24h": min(
-            v.get("ip_reuse_count_24h", 0) / 10.0, 1.0
-        ),
-        "receiver_txn_count_24h": min(
-            v.get("receiver_txn_count_24h", 0) / 200.0, 1.0
-        ),
-        "receiver_amount_sum_24h": min(
-            v.get("receiver_amount_sum_24h", 0) / 100000.0, 1.0
-        ),
-        "receiver_unique_senders_24h": min(
-            v.get("receiver_unique_senders_24h", 0) / 40.0, 1.0
-        ),
-        "first_time_counterparty": 1.0 if v.get("first_time_counterparty") else 0.0,
-        "ip_country_risk": v.get("ip_country_risk", 0.0),
-        "card_bin_risk": v.get("card_bin_risk", 0.0),
-        # Pattern-derived features (default 0.0 for training samples without pattern context)
-        "sender_in_ring": v.get("sender_in_ring", 0.0),
-        "sender_is_hub": v.get("sender_is_hub", 0.0),
-        "sender_in_velocity_cluster": v.get("sender_in_velocity_cluster", 0.0),
-        "sender_in_dense_cluster": v.get("sender_in_dense_cluster", 0.0),
-        "receiver_in_ring": v.get("receiver_in_ring", 0.0),
-        "receiver_is_hub": v.get("receiver_is_hub", 0.0),
-        "pattern_count_sender": v.get("pattern_count_sender", 0.0),
+    txn = {
+        "amount": amount,
+        "txn_type": txn_type,
+        "channel": channel,
+        **v,
     }
+    return compute_features(txn)
 
 
 def train_model(X: np.ndarray, y: np.ndarray, version_bump: str = "minor") -> dict:
     """Train an XGBClassifier and save it.
+
+    Uses stratified k-fold CV for evaluation, then trains the final model
+    on the full dataset for deployment.
 
     Args:
         X: Feature matrix (n_samples, n_features)
@@ -210,39 +155,61 @@ def train_model(X: np.ndarray, y: np.ndarray, version_bump: str = "minor") -> di
             "trained": False,
         }
 
-    # Split for evaluation
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=y
-    )
+    # Class imbalance handling
+    spw = float(legit_count) / max(float(fraud_count), 1)
 
-    # Train XGBClassifier — chosen for superior regularization and sparse handling
+    # Stratified k-fold CV for evaluation (k = min(5, smallest class count))
+    n_splits = min(5, min(fraud_count, legit_count))
+    cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
+
+    cv_model = XGBClassifier(
+        n_estimators=100,
+        max_depth=4,
+        learning_rate=0.1,
+        subsample=0.8,
+        colsample_bytree=0.8,
+        reg_alpha=0.1,
+        reg_lambda=1.0,
+        min_child_weight=2,
+        scale_pos_weight=spw,
+        random_state=42,
+        eval_metric="logloss",
+    )
+    cv_scores = cross_val_score(cv_model, X, y, cv=cv, scoring="f1")
+
+    # Train final model on FULL dataset for deployment
     model = XGBClassifier(
         n_estimators=100,
         max_depth=4,
         learning_rate=0.1,
         subsample=0.8,
         colsample_bytree=0.8,
-        reg_alpha=0.1,      # L1 regularization — handles sparsity well
-        reg_lambda=1.0,     # L2 regularization — prevents overfitting
+        reg_alpha=0.1,
+        reg_lambda=1.0,
         min_child_weight=2,
+        scale_pos_weight=spw,
         random_state=42,
         eval_metric="logloss",
     )
-    model.fit(X_train, y_train)
+    model.fit(X, y)
 
-    # Evaluate
-    y_pred = model.predict(X_test)
-    y_proba = model.predict_proba(X_test)[:, 1]
+    # Evaluate final model on full data for reporting (CV scores are the real metric)
+    y_pred = model.predict(X)
+    y_proba = model.predict_proba(X)[:, 1]
 
     metrics = {
-        "precision": round(float(precision_score(y_test, y_pred, zero_division=0)), 4),
-        "recall": round(float(recall_score(y_test, y_pred, zero_division=0)), 4),
-        "f1": round(float(f1_score(y_test, y_pred, zero_division=0)), 4),
-        "auc_roc": round(float(roc_auc_score(y_test, y_proba)), 4) if len(set(y_test)) > 1 else None,
-        "train_samples": len(y_train),
-        "test_samples": len(y_test),
+        "cv_f1_mean": round(float(np.mean(cv_scores)), 4),
+        "cv_f1_std": round(float(np.std(cv_scores)), 4),
+        "cv_f1_folds": [round(float(s), 4) for s in cv_scores],
+        "cv_n_splits": n_splits,
+        "precision": round(float(precision_score(y, y_pred, zero_division=0)), 4),
+        "recall": round(float(recall_score(y, y_pred, zero_division=0)), 4),
+        "f1": round(float(f1_score(y, y_pred, zero_division=0)), 4),
+        "auc_roc": round(float(roc_auc_score(y, y_proba)), 4) if len(set(y)) > 1 else None,
+        "total_samples": len(y),
         "fraud_samples": fraud_count,
         "legit_samples": legit_count,
+        "scale_pos_weight": round(spw, 4),
     }
 
     # Feature importance

@@ -79,11 +79,11 @@ class TestTransactionGeneration:
             assert txn["is_fraud_ground_truth"] is True
             assert txn["amount"] > 0
 
-    def test_fraud_structuring_small_amounts(self):
-        """Structuring fraud should have amounts below $1000."""
+    def test_fraud_structuring_near_threshold(self):
+        """Structuring fraud should cluster near the $10K BSA reporting threshold."""
         from sim.main import generate_transaction
         txn = generate_transaction(is_fraud=True, fraud_type="structuring")
-        assert txn["amount"] < 1000
+        assert 5000 <= txn["amount"] <= 9900
 
     def test_fraud_wash_trading_ring_members(self):
         """Wash trading should use ring member IDs."""
@@ -380,8 +380,8 @@ class TestPatternFeatures:
         ]
         for feat in pattern_features:
             assert feat in FEATURE_NAMES, f"Missing {feat} in FEATURE_NAMES"
-        # Original 27 + 7 pattern = 34
-        assert len(FEATURE_NAMES) == 34
+        # Original 28 (hour_of_day split into hour_sin + hour_cos) + 7 pattern = 35
+        assert len(FEATURE_NAMES) == 35
 
     def test_pattern_feature_names_in_trainer_features(self):
         """Trainer FEATURE_NAMES should include pattern feature names."""

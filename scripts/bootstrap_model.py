@@ -11,7 +11,12 @@ from pathlib import Path
 
 import numpy as np
 
+
+# Add project root to path so we can import config/risk/sim
+sys.path.append(str(Path(__file__).parent.parent))
+
 from config import get_settings
+
 from risk.scorer import compute_features
 from risk.trainer import FEATURE_NAMES, MODEL_DIR, train_model
 from sim.main import generate_transaction, FRAUD_RATE
@@ -76,6 +81,14 @@ def _inject_velocity_context(txn: dict, is_fraud: bool) -> dict:
         txn["receiver_amount_sum_24h"] = random.uniform(0, 15000)
         txn["receiver_unique_senders_24h"] = random.randint(0, 8)
         txn["first_time_counterparty"] = random.random() < 0.35
+        # ~20% of legit users get flagged by patterns innocuously (power users)
+        if random.random() < 0.20:
+            txn["pattern_count_sender"] = random.uniform(0, 0.5)
+        # Small chance legit users appear in pattern structures
+        if power_user and random.random() < 0.10:
+            txn["sender_is_hub"] = 1.0
+        if random.random() < 0.05:
+            txn["sender_in_velocity_cluster"] = 1.0
     return txn
 
 
@@ -105,7 +118,8 @@ def bootstrap(count: int, fraud_rate: float, force: bool) -> int:
     metrics = result.get("metrics", {})
     print(f"Bootstrap model trained: {result['version']}")
     print(
-        f"  F1: {metrics.get('f1')}, "
+        f"  CV F1: {metrics.get('cv_f1_mean')} +/- {metrics.get('cv_f1_std')}, "
+        f"Full-data F1: {metrics.get('f1')}, "
         f"Precision: {metrics.get('precision')}, "
         f"Recall: {metrics.get('recall')}"
     )

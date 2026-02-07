@@ -108,6 +108,10 @@ class MetricsOut(BaseModel):
 # --- Guardian globals ---
 _guardian_task: asyncio.Task | None = None
 
+# --- Auto-retrain debounce ---
+import time as _time_mod
+_last_retrain_time: float = 0
+
 
 # --- Lifespan ---
 @asynccontextmanager
@@ -206,34 +210,31 @@ async def readiness():
 # --- Velocity Feature Helpers ---
 async def _compute_velocity_features(db, sender_id: str, receiver_id: str,
                                      device_id: str | None = None, ip_address: str | None = None) -> dict:
-    """Query DB for recent activity to compute velocity + abuse features."""
+    """Query DB for recent activity to compute velocity + abuse features.
+
+    Consolidated from 11 serial queries down to 3-4 queries using
+    conditional aggregation (CASE WHEN inside aggregate functions).
+    """
     now = datetime.utcnow().isoformat()
 
-    # Count of transactions from this sender in last 1 hour
+    # Query 1 — Sender stats (replaces 5 separate queries)
     cursor = await db.execute(
-        """SELECT COUNT(*) FROM transactions
-           WHERE sender_id = ? AND timestamp >= datetime(?, '-1 hour')""",
-        (sender_id, now),
+        """SELECT
+               COUNT(CASE WHEN timestamp >= datetime(?, '-1 hour') THEN 1 END),
+               COUNT(CASE WHEN timestamp >= datetime(?, '-24 hours') THEN 1 END),
+               COALESCE(SUM(CASE WHEN timestamp >= datetime(?, '-1 hour') THEN amount END), 0),
+               MAX(timestamp)
+           FROM transactions WHERE sender_id = ?""",
+        (now, now, now, sender_id),
     )
-    txn_count_1h = (await cursor.fetchone())[0]
+    sender_row = await cursor.fetchone()
+    txn_count_1h = sender_row[0]
+    txn_count_24h = sender_row[1]
+    amount_sum_1h = sender_row[2]
+    last_ts = sender_row[3]
 
-    # Count of transactions from this sender in last 24 hours
-    cursor = await db.execute(
-        """SELECT COUNT(*) FROM transactions
-           WHERE sender_id = ? AND timestamp >= datetime(?, '-24 hours')""",
-        (sender_id, now),
-    )
-    txn_count_24h = (await cursor.fetchone())[0]
-
-    # Sum of amounts from this sender in last 1 hour
-    cursor = await db.execute(
-        """SELECT COALESCE(SUM(amount), 0) FROM transactions
-           WHERE sender_id = ? AND timestamp >= datetime(?, '-1 hour')""",
-        (sender_id, now),
-    )
-    amount_sum_1h = (await cursor.fetchone())[0]
-
-    # Unique receivers in last 24 hours
+    # Unique receivers needs a separate query (COUNT(DISTINCT CASE WHEN ...) is
+    # unreliable in SQLite — it counts non-NULL results of the CASE, not distinct values)
     cursor = await db.execute(
         """SELECT COUNT(DISTINCT receiver_id) FROM transactions
            WHERE sender_id = ? AND timestamp >= datetime(?, '-24 hours')""",
@@ -241,21 +242,19 @@ async def _compute_velocity_features(db, sender_id: str, receiver_id: str,
     )
     unique_receivers_24h = (await cursor.fetchone())[0]
 
-    # Receiver-side activity (inflow patterns)
+    # Query 2 — Receiver stats (replaces 3 separate queries)
     cursor = await db.execute(
-        """SELECT COUNT(*) FROM transactions
-           WHERE receiver_id = ? AND timestamp >= datetime(?, '-24 hours')""",
-        (receiver_id, now),
+        """SELECT
+               COUNT(CASE WHEN timestamp >= datetime(?, '-24 hours') THEN 1 END),
+               COALESCE(SUM(CASE WHEN timestamp >= datetime(?, '-24 hours') THEN amount END), 0)
+           FROM transactions WHERE receiver_id = ?""",
+        (now, now, receiver_id),
     )
-    receiver_txn_count_24h = (await cursor.fetchone())[0]
+    receiver_row = await cursor.fetchone()
+    receiver_txn_count_24h = receiver_row[0]
+    receiver_amount_sum_24h = receiver_row[1]
 
-    cursor = await db.execute(
-        """SELECT COALESCE(SUM(amount), 0) FROM transactions
-           WHERE receiver_id = ? AND timestamp >= datetime(?, '-24 hours')""",
-        (receiver_id, now),
-    )
-    receiver_amount_sum_24h = (await cursor.fetchone())[0]
-
+    # Unique senders to receiver also needs a separate query for same reason
     cursor = await db.execute(
         """SELECT COUNT(DISTINCT sender_id) FROM transactions
            WHERE receiver_id = ? AND timestamp >= datetime(?, '-24 hours')""",
@@ -263,42 +262,47 @@ async def _compute_velocity_features(db, sender_id: str, receiver_id: str,
     )
     receiver_unique_senders_24h = (await cursor.fetchone())[0]
 
-    # First-time counterparty (sender -> receiver)
+    # Query 3 — First-time counterparty (with 90-day bound)
     cursor = await db.execute(
         """SELECT COUNT(*) FROM transactions
-           WHERE sender_id = ? AND receiver_id = ?""",
-        (sender_id, receiver_id),
+           WHERE sender_id = ? AND receiver_id = ?
+           AND timestamp >= datetime(?, '-90 days')""",
+        (sender_id, receiver_id, now),
     )
     prior_pair_count = (await cursor.fetchone())[0]
     first_time_counterparty = prior_pair_count == 0
 
-    # Device/IP reuse (bonus abuse signals)
+    # Query 4 — Device/IP reuse (combined into one query when both present)
     device_reuse_count_24h = 0
-    if device_id:
-        cursor = await db.execute(
-            """SELECT COUNT(DISTINCT sender_id) FROM transactions
-               WHERE device_id = ? AND timestamp >= datetime(?, '-24 hours')""",
-            (device_id, now),
-        )
-        device_distinct_senders = (await cursor.fetchone())[0]
-        device_reuse_count_24h = max(0, device_distinct_senders - 1)
-
     ip_reuse_count_24h = 0
-    if ip_address:
+    if device_id and ip_address:
+        cursor = await db.execute(
+            """SELECT
+                   (SELECT COUNT(DISTINCT sender_id) FROM transactions
+                    WHERE device_id = ? AND timestamp >= datetime(?, '-24 hours') AND sender_id != ?),
+                   (SELECT COUNT(DISTINCT sender_id) FROM transactions
+                    WHERE ip_address = ? AND timestamp >= datetime(?, '-24 hours') AND sender_id != ?)""",
+            (device_id, now, sender_id, ip_address, now, sender_id),
+        )
+        reuse_row = await cursor.fetchone()
+        device_reuse_count_24h = reuse_row[0]
+        ip_reuse_count_24h = reuse_row[1]
+    elif device_id:
         cursor = await db.execute(
             """SELECT COUNT(DISTINCT sender_id) FROM transactions
-               WHERE ip_address = ? AND timestamp >= datetime(?, '-24 hours')""",
-            (ip_address, now),
+               WHERE device_id = ? AND timestamp >= datetime(?, '-24 hours') AND sender_id != ?""",
+            (device_id, now, sender_id),
         )
-        ip_distinct_senders = (await cursor.fetchone())[0]
-        ip_reuse_count_24h = max(0, ip_distinct_senders - 1)
+        device_reuse_count_24h = (await cursor.fetchone())[0]
+    elif ip_address:
+        cursor = await db.execute(
+            """SELECT COUNT(DISTINCT sender_id) FROM transactions
+               WHERE ip_address = ? AND timestamp >= datetime(?, '-24 hours') AND sender_id != ?""",
+            (ip_address, now, sender_id),
+        )
+        ip_reuse_count_24h = (await cursor.fetchone())[0]
 
-    # Time since last transaction from this sender (in minutes)
-    cursor = await db.execute(
-        """SELECT MAX(timestamp) FROM transactions WHERE sender_id = ?""",
-        (sender_id,),
-    )
-    last_ts = (await cursor.fetchone())[0]
+    # Time since last transaction from sender (computed from MAX(timestamp) in query 1)
     if last_ts:
         try:
             last_dt = datetime.fromisoformat(last_ts)
@@ -541,7 +545,13 @@ async def label_case(case_id: str, label_in: LabelIn):
     # Auto-retrain: check if we have enough labels and retrain in background
     if label_in.decision in ("fraud", "not_fraud"):
         async def _maybe_auto_retrain():
+            global _last_retrain_time
             try:
+                # Debounce: skip if less than 60s since last retrain
+                if _time_mod.time() - _last_retrain_time < 60:
+                    logger.debug("Auto-retrain debounced (< 60s since last)")
+                    return
+
                 async with get_db() as db2:
                     cursor = await db2.execute(
                         "SELECT COUNT(*) FROM analyst_labels WHERE decision = 'fraud'"
@@ -555,6 +565,7 @@ async def label_case(case_id: str, label_in: LabelIn):
                 if fraud_count >= MIN_SAMPLES_PER_CLASS and legit_count >= MIN_SAMPLES_PER_CLASS:
                     async with _retrain_lock:
                         await _do_retrain(write_snapshot=True)
+                    _last_retrain_time = _time_mod.time()
                     logger.info("Auto-retrain completed after label threshold reached")
             except Exception as e:
                 logger.warning(f"Auto-retrain skipped: {e}")
@@ -761,13 +772,30 @@ async def explain_case_stream(case_id: str):
     prompt = _build_llm_prompt(txn, risk_score, decision, features, reasons, [], model_version)
 
     async def generate():
-        # Run synchronous Ollama streaming in a thread to avoid blocking the event loop
-        chunks = await asyncio.get_event_loop().run_in_executor(
-            None, lambda: list(_call_ollama_stream(prompt))
-        )
-        for chunk, done in chunks:
+        # Use asyncio.Queue as bridge between sync Ollama iterator and async generator
+        # for true chunk-by-chunk streaming (no materialization)
+        queue: asyncio.Queue = asyncio.Queue()
+        sentinel = object()
+
+        def _stream_to_queue():
+            try:
+                for chunk, done in _call_ollama_stream(prompt):
+                    queue.put_nowait((chunk, done))
+            except Exception as e:
+                queue.put_nowait((f"Error: {e}", True))
+            finally:
+                queue.put_nowait((sentinel, True))
+
+        loop = asyncio.get_event_loop()
+        loop.run_in_executor(None, _stream_to_queue)
+
+        while True:
+            item = await asyncio.wait_for(queue.get(), timeout=60)
+            chunk, done = item
+            if chunk is sentinel:
+                yield "data: [DONE]\n\n"
+                break
             yield f"data: {json.dumps({'text': chunk, 'done': done})}\n\n"
-        yield "data: [DONE]\n\n"
 
     return StreamingResponse(generate(), media_type="text/event-stream")
 
@@ -783,31 +811,38 @@ async def get_metrics():
         cases_closed = (await (await db.execute("SELECT COUNT(*) FROM cases WHERE status = 'closed'")).fetchone())[0]
 
         # Compute real precision/recall from analyst labels vs risk_results
+        # Single SQL query with conditional aggregation (O(1) memory)
         cursor = await db.execute(
-            """SELECT al.decision, r.flagged
+            """SELECT
+                   SUM(CASE WHEN al.decision = 'fraud' AND r.flagged = 1 THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN al.decision = 'not_fraud' AND r.flagged = 1 THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN al.decision = 'fraud' AND r.flagged = 0 THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN al.decision = 'not_fraud' AND r.flagged = 0 THEN 1 ELSE 0 END),
+                   COUNT(*)
                FROM analyst_labels al
                JOIN risk_results r ON al.txn_id = r.txn_id
                WHERE al.decision IN ('fraud', 'not_fraud')"""
         )
-        labels = await cursor.fetchall()
+        metrics_row = await cursor.fetchone()
 
     precision = None
     recall = None
     f1 = None
 
-    if labels:
-        # True labels: fraud=1, not_fraud=0
-        # Predictions: flagged=1, not flagged=0
-        true_fraud = sum(1 for l in labels if l[0] == "fraud")
-        true_legit = sum(1 for l in labels if l[0] == "not_fraud")
-        flagged_as_fraud = sum(1 for l in labels if l[1] == 1)
-        true_positives = sum(1 for l in labels if l[0] == "fraud" and l[1] == 1)
-        false_positives = sum(1 for l in labels if l[0] == "not_fraud" and l[1] == 1)
+    if metrics_row and metrics_row[4] > 0:
+        tp = metrics_row[0] or 0
+        fp = metrics_row[1] or 0
+        fn = metrics_row[2] or 0
+        # tn = metrics_row[3] or 0  # available if needed
+        total_labels = metrics_row[4]
+
+        flagged_as_fraud = tp + fp
+        true_fraud = tp + fn
 
         if flagged_as_fraud > 0:
-            precision = round(true_positives / flagged_as_fraud, 4)
+            precision = round(tp / flagged_as_fraud, 4)
         if true_fraud > 0:
-            recall = round(true_positives / true_fraud, 4)
+            recall = round(tp / true_fraud, 4)
         if precision is not None and recall is not None and (precision + recall) > 0:
             f1 = round(2 * precision * recall / (precision + recall), 4)
 
@@ -1106,6 +1141,7 @@ async def get_transaction(txn_id: str):
 
 # --- SSE Event Stream (for Orbital Greenhouse UI) ---
 # In-memory event bus for real-time UI updates
+MAX_SUBSCRIBERS = 50
 _event_subscribers: list[asyncio.Queue] = []
 
 
@@ -1115,7 +1151,7 @@ def _publish_event(event: dict):
         try:
             queue.put_nowait(event)
         except asyncio.QueueFull:
-            pass  # Drop events for slow consumers
+            logger.warning("SSE subscriber queue full, dropping event")
 
 
 @app.get("/stream/events")
@@ -1129,6 +1165,11 @@ async def stream_events():
     - retrain: model retrained
     - pattern: new pattern discovered
     """
+    if len(_event_subscribers) >= MAX_SUBSCRIBERS:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Too many SSE subscribers (max {MAX_SUBSCRIBERS})",
+        )
     queue: asyncio.Queue = asyncio.Queue(maxsize=100)
     _event_subscribers.append(queue)
 

@@ -120,5 +120,15 @@ async def init_db_tables():
                 ON cases(status);
             CREATE INDEX IF NOT EXISTS idx_risk_results_flagged
                 ON risk_results(flagged);
+
+            -- Compound indexes for consolidated velocity queries
+            CREATE INDEX IF NOT EXISTS idx_txn_receiver_ts
+                ON transactions(receiver_id, timestamp);
+            CREATE INDEX IF NOT EXISTS idx_txn_sender_receiver
+                ON transactions(sender_id, receiver_id);
+            CREATE INDEX IF NOT EXISTS idx_txn_device_ts
+                ON transactions(device_id, timestamp);
+            CREATE INDEX IF NOT EXISTS idx_txn_ip_ts
+                ON transactions(ip_address, timestamp);
         """)
         await db.commit()

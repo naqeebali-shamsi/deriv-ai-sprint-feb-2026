@@ -1,18 +1,21 @@
 """Pattern mining module using networkx graph analysis.
 
 Builds sender-receiver transaction graphs and discovers:
-1. Fraud rings (dense subgraphs / connected components)
-2. Hub accounts (high-degree nodes)
-3. Velocity clusters (temporal bursts from same sender)
-4. Circular flows (cycle detection for wash trading)
+1. Fraud rings (SCC-based cycle detection for wash trading)
+2. Hub accounts (HITS algorithm + z-score on degree distribution)
+3. Velocity clusters (sliding window two-pointer)
+4. Dense subgraphs (SCC + flow-weighted directed density)
 """
+import hashlib
 import json
-from collections import Counter, defaultdict
+import math
+from collections import defaultdict
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from uuid import uuid4
 
 import networkx as nx
+import numpy as np
 
 
 @dataclass
@@ -60,48 +63,76 @@ def build_transaction_graph(transactions: list[dict]) -> nx.DiGraph:
 def detect_rings(G: nx.DiGraph, min_size: int = 3) -> list[PatternCard]:
     """Detect circular fund flows (fraud rings / wash trading).
 
-    Looks for cycles in the transaction graph where money flows
-    A -> B -> C -> A (or longer).
+    Uses Tarjan's SCC algorithm to find strongly connected components,
+    then extracts representative cycles from each SCC subgraph.
+    SCCs of size >= min_size are ring candidates.
+    Confidence is inverted: shorter cycles = higher confidence.
+    Ranked by total edge weight (flow).
     """
     patterns = []
-    try:
-        # Find all simple cycles up to length 6
-        cycles = list(nx.simple_cycles(G, length_bound=6))
-    except Exception:
-        cycles = []
 
-    # Filter to meaningful cycles
-    significant_cycles = [c for c in cycles if len(c) >= min_size]
+    # Use Tarjan's SCC — O(V+E) — to find ring candidates
+    sccs = [
+        scc for scc in nx.strongly_connected_components(G)
+        if len(scc) >= min_size
+    ]
 
-    if not significant_cycles:
+    if not sccs:
         return patterns
 
-    # Group by cycle length
-    for cycle in significant_cycles[:5]:  # Limit to top 5
-        # Collect transaction IDs involved
-        txn_ids = []
-        total_amount = 0
-        for i in range(len(cycle)):
-            src = cycle[i]
-            dst = cycle[(i + 1) % len(cycle)]
-            if G.has_edge(src, dst):
-                edge_data = G[src][dst]
-                txn_ids.extend(edge_data.get("txn_ids", []))
-                total_amount += edge_data.get("weight", 0)
+    # Rank SCCs by total flow weight
+    scc_data = []
+    for scc in sccs:
+        subgraph = G.subgraph(scc)
+        total_flow = sum(d.get("weight", 0) for _, _, d in subgraph.edges(data=True))
+        scc_data.append((scc, subgraph, total_flow))
 
-        members = " -> ".join(n[:12] for n in cycle) + " -> " + cycle[0][:12]
+    scc_data.sort(key=lambda x: -x[2])
+
+    for scc, subgraph, total_flow in scc_data[:5]:
+        member_ids = sorted(scc)
+
+        # Extract one representative cycle from the SCC subgraph (bounded)
+        representative_cycle = None
+        try:
+            for cycle in nx.simple_cycles(subgraph, length_bound=min(len(scc), 6)):
+                if len(cycle) >= min_size:
+                    representative_cycle = cycle
+                    break
+        except Exception:
+            pass
+
+        # Collect all txn_ids within the SCC
+        txn_ids = []
+        for u, v, data in subgraph.edges(data=True):
+            txn_ids.extend(data.get("txn_ids", []))
+
+        cycle_len = len(representative_cycle) if representative_cycle else len(scc)
+        # Inverted confidence: shorter cycles = higher confidence
+        confidence = min(0.95 - (cycle_len - min_size) * 0.1, 0.95)
+        confidence = max(confidence, 0.4)
+
+        if representative_cycle:
+            members_str = " -> ".join(n[:12] for n in representative_cycle) + " -> " + representative_cycle[0][:12]
+        else:
+            members_str = ", ".join(n[:12] for n in member_ids[:8])
 
         patterns.append(PatternCard(
             pattern_id=str(uuid4()),
-            name=f"Circular Flow Ring ({len(cycle)} members)",
-            description=f"Circular fund flow detected: {members}. "
-                        f"Total amount: ${total_amount:,.2f}. "
+            name=f"Circular Flow Ring ({len(scc)} members)",
+            description=f"Circular fund flow detected: {members_str}. "
+                        f"Total amount: ${total_flow:,.2f}. "
                         f"Possible wash trading or layering.",
             discovered_at=datetime.utcnow().isoformat(),
             pattern_type="graph",
-            confidence=min(0.5 + len(cycle) * 0.1, 0.95),
-            detection_rule={"type": "cycle", "min_size": min_size, "cycle_length": len(cycle)},
-            stats={"members": len(cycle), "total_amount": round(total_amount, 2),
+            confidence=confidence,
+            detection_rule={
+                "type": "cycle",
+                "min_size": min_size,
+                "cycle_length": cycle_len,
+                "member_ids": member_ids,
+            },
+            stats={"members": len(scc), "total_amount": round(total_flow, 2),
                    "txn_count": len(txn_ids)},
             related_txn_ids=txn_ids[:20],
         ))
@@ -112,16 +143,51 @@ def detect_rings(G: nx.DiGraph, min_size: int = 3) -> list[PatternCard]:
 def detect_hubs(G: nx.DiGraph, threshold: int = 5) -> list[PatternCard]:
     """Detect hub accounts with unusually high connectivity.
 
-    High out-degree = sending to many accounts (possible structuring)
-    High in-degree = receiving from many accounts (possible money mule)
+    Uses HITS algorithm (Kleinberg) for hub/authority scores,
+    combined with z-score on weighted degree distribution for adaptive thresholding.
     """
     patterns = []
 
-    # Out-degree hubs (senders to many receivers)
-    out_hubs = [(node, deg) for node, deg in G.out_degree() if deg >= threshold]
-    out_hubs.sort(key=lambda x: -x[1])
+    if G.number_of_nodes() < 2:
+        return patterns
 
-    for node, degree in out_hubs[:3]:
+    # Compute HITS hub and authority scores — textbook algorithm for this problem
+    try:
+        hubs, authorities = nx.hits(G, max_iter=100, tol=1e-6)
+    except nx.PowerIterationFailedConvergence:
+        hubs = {n: 0.0 for n in G.nodes()}
+        authorities = {n: 0.0 for n in G.nodes()}
+
+    # Compute weighted out-degree (strength) and z-scores for adaptive thresholding
+    out_strengths = {}
+    in_strengths = {}
+    for node in G.nodes():
+        out_strengths[node] = sum(d.get("weight", 0) for _, _, d in G.out_edges(node, data=True))
+        in_strengths[node] = sum(d.get("weight", 0) for _, _, d in G.in_edges(node, data=True))
+
+    out_degrees = np.array([G.out_degree(n) for n in G.nodes()])
+    in_degrees = np.array([G.in_degree(n) for n in G.nodes()])
+    nodes_list = list(G.nodes())
+
+    # Z-score thresholding: flag outliers > mean + 2*std
+    def get_outliers(degrees, direction):
+        if len(degrees) < 2 or np.std(degrees) == 0:
+            return []
+        mean_d = np.mean(degrees)
+        std_d = np.std(degrees)
+        z_threshold = mean_d + 2 * std_d
+        return [
+            (nodes_list[i], int(degrees[i]))
+            for i in range(len(degrees))
+            if degrees[i] >= z_threshold and degrees[i] >= 2  # minimum sanity
+        ]
+
+    # Out-degree hubs (senders to many receivers)
+    out_hub_candidates = get_outliers(out_degrees, "out")
+    # Sort by HITS hub score descending
+    out_hub_candidates.sort(key=lambda x: -hubs.get(x[0], 0))
+
+    for node, degree in out_hub_candidates[:3]:
         txn_ids = []
         total_amount = 0
         receivers = []
@@ -130,26 +196,41 @@ def detect_hubs(G: nx.DiGraph, threshold: int = 5) -> list[PatternCard]:
             total_amount += data.get("weight", 0)
             receivers.append(receiver[:12])
 
+        hub_score = hubs.get(node, 0)
+        member_ids = sorted([node] + [r for _, r in G.out_edges(node)])
+        # Confidence from HITS hub score, clamped
+        confidence = min(0.4 + hub_score * 5.0, 0.95)
+
         patterns.append(PatternCard(
             pattern_id=str(uuid4()),
             name=f"High-Activity Sender: {node[:15]}",
             description=f"Account {node[:15]} sent to {degree} unique receivers. "
                         f"Total outflow: ${total_amount:,.2f}. "
+                        f"HITS hub score: {hub_score:.4f}. "
                         f"Possible structuring or fund distribution.",
             discovered_at=datetime.utcnow().isoformat(),
             pattern_type="graph",
-            confidence=min(0.4 + degree * 0.05, 0.9),
-            detection_rule={"type": "hub_out", "threshold": threshold, "degree": degree},
+            confidence=confidence,
+            detection_rule={
+                "type": "hub_out",
+                "threshold": threshold,
+                "degree": degree,
+                "hub_score": round(hub_score, 6),
+                "member_ids": member_ids,
+            },
             stats={"out_degree": degree, "total_amount": round(total_amount, 2),
+                   "hub_score": round(hub_score, 6),
+                   "weighted_degree": round(out_strengths.get(node, 0), 2),
                    "receivers_sample": receivers[:5]},
             related_txn_ids=txn_ids[:20],
         ))
 
     # In-degree hubs (receivers from many senders)
-    in_hubs = [(node, deg) for node, deg in G.in_degree() if deg >= threshold]
-    in_hubs.sort(key=lambda x: -x[1])
+    in_hub_candidates = get_outliers(in_degrees, "in")
+    # Sort by HITS authority score descending
+    in_hub_candidates.sort(key=lambda x: -authorities.get(x[0], 0))
 
-    for node, degree in in_hubs[:3]:
+    for node, degree in in_hub_candidates[:3]:
         txn_ids = []
         total_amount = 0
         senders = []
@@ -158,17 +239,30 @@ def detect_hubs(G: nx.DiGraph, threshold: int = 5) -> list[PatternCard]:
             total_amount += data.get("weight", 0)
             senders.append(sender[:12])
 
+        auth_score = authorities.get(node, 0)
+        member_ids = sorted([node] + [s for s, _ in G.in_edges(node)])
+        confidence = min(0.4 + auth_score * 5.0, 0.95)
+
         patterns.append(PatternCard(
             pattern_id=str(uuid4()),
             name=f"High-Activity Receiver: {node[:15]}",
             description=f"Account {node[:15]} received from {degree} unique senders. "
                         f"Total inflow: ${total_amount:,.2f}. "
+                        f"HITS authority score: {auth_score:.4f}. "
                         f"Possible money mule or collection point.",
             discovered_at=datetime.utcnow().isoformat(),
             pattern_type="graph",
-            confidence=min(0.4 + degree * 0.05, 0.9),
-            detection_rule={"type": "hub_in", "threshold": threshold, "degree": degree},
+            confidence=confidence,
+            detection_rule={
+                "type": "hub_in",
+                "threshold": threshold,
+                "degree": degree,
+                "authority_score": round(auth_score, 6),
+                "member_ids": member_ids,
+            },
             stats={"in_degree": degree, "total_amount": round(total_amount, 2),
+                   "authority_score": round(auth_score, 6),
+                   "weighted_degree": round(in_strengths.get(node, 0), 2),
                    "senders_sample": senders[:5]},
             related_txn_ids=txn_ids[:20],
         ))
@@ -178,7 +272,12 @@ def detect_hubs(G: nx.DiGraph, threshold: int = 5) -> list[PatternCard]:
 
 def detect_velocity_clusters(transactions: list[dict], window_minutes: int = 60,
                               threshold: int = 5) -> list[PatternCard]:
-    """Detect temporal velocity anomalies — bursts of transactions from same sender."""
+    """Detect temporal velocity anomalies — bursts of transactions from same sender.
+
+    Uses sliding window two-pointer: for each sender's sorted transactions,
+    finds the maximum transaction count within any window_minutes window.
+    Flags senders where max_count >= threshold.
+    """
     patterns = []
 
     # Group transactions by sender
@@ -188,77 +287,146 @@ def detect_velocity_clusters(transactions: list[dict], window_minutes: int = 60,
         if sender:
             by_sender[sender].append(txn)
 
+    window_seconds = window_minutes * 60
+
     for sender, txns in by_sender.items():
         if len(txns) < threshold:
             continue
 
-        # Sort by timestamp
+        # Sort by timestamp and parse to epoch seconds
         sorted_txns = sorted(txns, key=lambda t: t.get("timestamp", ""))
-        txn_ids = [t.get("txn_id", "") for t in sorted_txns]
-        total_amount = sum(t.get("amount", 0) for t in sorted_txns)
-        avg_amount = total_amount / len(sorted_txns) if sorted_txns else 0
+        timestamps = []
+        for t in sorted_txns:
+            ts_str = t.get("timestamp", "")
+            if not ts_str:
+                continue
+            try:
+                dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                timestamps.append(dt.timestamp())
+            except (ValueError, TypeError):
+                continue
+
+        if len(timestamps) < threshold:
+            continue
+
+        # Sliding window two-pointer to find max count in any window
+        max_count = 0
+        max_window_start = 0
+        left = 0
+        for right in range(len(timestamps)):
+            # Shrink window from left while it exceeds window_seconds
+            while timestamps[right] - timestamps[left] > window_seconds:
+                left += 1
+            window_count = right - left + 1
+            if window_count > max_count:
+                max_count = window_count
+                max_window_start = left
+
+        if max_count < threshold:
+            continue
+
+        # Collect txn_ids from the densest window
+        window_txns = sorted_txns[max_window_start:max_window_start + max_count]
+        txn_ids = [t.get("txn_id", "") for t in window_txns]
+        total_amount = sum(t.get("amount", 0) for t in window_txns)
+        avg_amount = total_amount / max_count if max_count else 0
+
+        member_ids = [sender]
 
         patterns.append(PatternCard(
             pattern_id=str(uuid4()),
             name=f"Velocity Spike: {sender[:15]}",
-            description=f"Account {sender[:15]} made {len(txns)} transactions "
+            description=f"Account {sender[:15]} made {max_count} transactions "
+                        f"within {window_minutes} minutes "
                         f"(avg ${avg_amount:,.2f} each, total ${total_amount:,.2f}). "
                         f"High-frequency activity detected.",
             discovered_at=datetime.utcnow().isoformat(),
             pattern_type="velocity",
-            confidence=min(0.3 + len(txns) * 0.05, 0.85),
-            detection_rule={"type": "velocity", "window_minutes": window_minutes,
-                          "threshold": threshold},
-            stats={"txn_count": len(txns), "total_amount": round(total_amount, 2),
-                   "avg_amount": round(avg_amount, 2)},
+            confidence=min(0.3 + max_count * 0.05, 0.85),
+            detection_rule={
+                "type": "velocity",
+                "window_minutes": window_minutes,
+                "threshold": threshold,
+                "max_count_in_window": max_count,
+                "member_ids": member_ids,
+            },
+            stats={"txn_count": max_count, "total_amount": round(total_amount, 2),
+                   "avg_amount": round(avg_amount, 2),
+                   "total_sender_txns": len(txns)},
             related_txn_ids=txn_ids[:20],
         ))
 
-    return patterns[:5]  # Limit to top 5
+    # Sort by confidence descending, limit to top 5
+    patterns.sort(key=lambda p: -p.confidence)
+    return patterns[:5]
 
 
 def detect_dense_subgraphs(G: nx.DiGraph, min_density: float = 0.5) -> list[PatternCard]:
     """Detect dense subgraphs that may indicate coordinated fraud.
 
-    Uses connected components on the undirected version, then checks density.
+    Uses Tarjan's SCC to preserve directionality (not converting to undirected).
+    Computes directed density within each SCC.
+    Ranks by density * log(total_flow + 1).
     """
     patterns = []
-    UG = G.to_undirected()
 
-    for component in nx.connected_components(UG):
-        if len(component) < 3:
+    for scc in nx.strongly_connected_components(G):
+        if len(scc) < 3:
             continue
 
-        subgraph = G.subgraph(component)
+        subgraph = G.subgraph(scc)
         density = nx.density(subgraph)
 
-        if density >= min_density:
-            # Collect all transaction IDs in this component
-            txn_ids = []
-            total_amount = 0
-            for u, v, data in subgraph.edges(data=True):
-                txn_ids.extend(data.get("txn_ids", []))
-                total_amount += data.get("weight", 0)
+        if density < min_density:
+            continue
 
-            members = [n[:12] for n in sorted(component)[:8]]
+        # Collect all transaction IDs and total flow in this SCC
+        txn_ids = []
+        total_amount = 0
+        for u, v, data in subgraph.edges(data=True):
+            txn_ids.extend(data.get("txn_ids", []))
+            total_amount += data.get("weight", 0)
 
-            patterns.append(PatternCard(
-                pattern_id=str(uuid4()),
-                name=f"Dense Cluster ({len(component)} accounts)",
-                description=f"Tightly connected group of {len(component)} accounts "
-                            f"with density {density:.2f}. Members: {', '.join(members)}. "
-                            f"Total flow: ${total_amount:,.2f}. Possible coordinated activity.",
-                discovered_at=datetime.utcnow().isoformat(),
-                pattern_type="graph",
-                confidence=min(density, 0.95),
-                detection_rule={"type": "dense_subgraph", "min_density": min_density,
-                              "density": round(density, 4)},
-                stats={"members": len(component), "density": round(density, 4),
-                       "total_amount": round(total_amount, 2), "edge_count": subgraph.number_of_edges()},
-                related_txn_ids=txn_ids[:20],
-            ))
+        member_ids = sorted(scc)
+        members_str = [n[:12] for n in member_ids[:8]]
 
-    return sorted(patterns, key=lambda p: p.confidence, reverse=True)[:5]
+        # Rank score: density * log(total_flow + 1)
+        rank_score = density * math.log(total_amount + 1)
+
+        patterns.append(PatternCard(
+            pattern_id=str(uuid4()),
+            name=f"Dense Cluster ({len(scc)} accounts)",
+            description=f"Tightly connected group of {len(scc)} accounts "
+                        f"with density {density:.2f}. Members: {', '.join(members_str)}. "
+                        f"Total flow: ${total_amount:,.2f}. Possible coordinated activity.",
+            discovered_at=datetime.utcnow().isoformat(),
+            pattern_type="graph",
+            confidence=min(density, 0.95),
+            detection_rule={
+                "type": "dense_subgraph",
+                "min_density": min_density,
+                "density": round(density, 4),
+                "member_ids": member_ids,
+            },
+            stats={"members": len(scc), "density": round(density, 4),
+                   "total_amount": round(total_amount, 2),
+                   "edge_count": subgraph.number_of_edges(),
+                   "rank_score": round(rank_score, 4)},
+            related_txn_ids=txn_ids[:20],
+        ))
+
+    return sorted(patterns, key=lambda p: p.stats.get("rank_score", 0) if p.stats else 0, reverse=True)[:5]
+
+
+def _structural_signature(pattern: PatternCard) -> str:
+    """Compute a structural dedup key from sorted member_ids."""
+    member_ids = []
+    if pattern.detection_rule:
+        member_ids = pattern.detection_rule.get("member_ids", [])
+    if not member_ids:
+        return pattern.pattern_id  # unique fallback
+    key = tuple(sorted(member_ids))
+    return hashlib.sha256(str(key).encode()).hexdigest()[:16]
 
 
 def mine_patterns(transactions: list[dict]) -> list[PatternCard]:
@@ -298,6 +466,7 @@ async def run_mining_job_async(db) -> list[PatternCard]:
 
     Queries last 24h of transactions, runs all mining algorithms,
     and stores discovered patterns as pattern cards.
+    Deduplicates by structural signature (sorted member_ids hash).
     """
     now = datetime.utcnow().isoformat()
 
@@ -321,15 +490,33 @@ async def run_mining_job_async(db) -> list[PatternCard]:
     # Mine patterns
     patterns = mine_patterns(transactions)
 
-    # Store new patterns (skip duplicates by checking pattern_type + name prefix)
+    # Build existing structural signatures for dedup
     existing_cursor = await db.execute(
-        "SELECT name FROM pattern_cards WHERE status = 'active'"
+        "SELECT name, detection_rule FROM pattern_cards WHERE status = 'active'"
     )
-    existing_names = {r[0] for r in await existing_cursor.fetchall()}
+    existing_rows = await existing_cursor.fetchall()
+
+    existing_signatures = set()
+    for name, rule_json in existing_rows:
+        if rule_json:
+            try:
+                rule = json.loads(rule_json)
+                member_ids = rule.get("member_ids", [])
+                if member_ids:
+                    key = tuple(sorted(member_ids))
+                    sig = hashlib.sha256(str(key).encode()).hexdigest()[:16]
+                    existing_signatures.add(sig)
+                    continue
+            except (json.JSONDecodeError, TypeError):
+                pass
+        # Fallback: use name for legacy patterns without member_ids
+        existing_signatures.add(name)
 
     new_count = 0
     for pattern in patterns:
-        if pattern.name not in existing_names:
+        sig = _structural_signature(pattern)
+        if sig not in existing_signatures:
+            existing_signatures.add(sig)
             await db.execute(
                 """INSERT INTO pattern_cards
                    (pattern_id, name, description, discovered_at, status, pattern_type,

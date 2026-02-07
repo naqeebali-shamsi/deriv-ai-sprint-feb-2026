@@ -2,14 +2,18 @@
 
 Generates transactions designed to evade the fraud detection model
 using realistic evasion techniques. These do NOT use named fraud pools
-(ring_a_*, smurfer_*, velocity_*, spoofer_*, bonus_*) since those leak
+(ring_a_*, smurfer_*, velocity_*, unauth_*, bonus_*) since those leak
 identity through velocity features.
 
 Each generator produces transactions that ARE fraud (ground truth)
 but are designed to look legitimate to the scorer.
+
+Stateful generators (stealth_wash_trade, subtle_structuring, slow_velocity_abuse)
+use persistent ID pools so that patterns and velocity signals build up across
+repeated calls, which is necessary for the backend's server-side velocity
+computation to register meaningful signals.
 """
 import random
-from datetime import datetime
 from uuid import uuid4
 
 
@@ -28,29 +32,38 @@ def _low_risk_metadata() -> dict:
     }
 
 
+# --- Persistent ID pools for stateful adversarial generators ---
+_STEALTH_RING = [f"stealth_wt_{i}" for i in range(5)]
+_stealth_ring_idx = 0
+
+_SUBTLE_STRUCT_SENDERS = [f"struct_adv_{i}" for i in range(5)]
+
+_SLOW_VELOCITY_SENDERS = [f"slowvel_adv_{i}" for i in range(5)]
+
+
 def generate_subtle_structuring() -> dict:
-    """Structuring that varies amounts randomly, uses different receivers,
-    spaces transactions apart, and uses common channels.
+    """Structuring that varies amounts near $10K threshold, uses persistent sender pool.
 
     Evasion tactics:
-    - Amount between $200-$900 with random variation (not fixed pattern)
+    - Amount between $8000-$9800 clustering near BSA $10K threshold
+    - Persistent sender pool (5 IDs) so velocity builds across calls
     - Unique receiver_id each call (no velocity buildup on receiver side)
-    - No velocity fields set (simulates spaced-apart transactions)
     - Web/mobile channels (not API)
-    - Unique sender_id per call (no sender velocity buildup)
     """
+    sender = random.choice(_SUBTLE_STRUCT_SENDERS)
+    amount = random.gauss(9200, 400)
+    amount = max(7500, min(amount, 9800))
+
     return {
-        "txn_id": str(uuid4()),
-        "amount": round(random.uniform(200, 900), 2),
+        "amount": round(amount, 2),
         "currency": random.choice(["USD", "EUR", "GBP"]),
-        "sender_id": _random_id(),
+        "sender_id": sender,
         "receiver_id": _random_id(),
         "txn_type": "transfer",
         "channel": random.choice(["web", "mobile"]),
         "ip_address": f"{random.randint(10,200)}.{random.randint(0,255)}.{random.randint(0,255)}.{random.randint(1,254)}",
         "device_id": uuid4().hex[:8],
         "is_fraud_ground_truth": True,
-        "time_since_last_txn_minutes": random.randint(30, 120),
         "metadata": {
             "evasion_strategy": "subtle_structuring",
             "fraud_type": "structuring",
@@ -60,27 +73,29 @@ def generate_subtle_structuring() -> dict:
 
 
 def generate_stealth_wash_trade() -> dict:
-    """Wash trading with random account IDs, small amounts, different
-    channels per leg, and delays between legs.
+    """Wash trading with persistent ring of 5 IDs creating circular flows.
 
     Evasion tactics:
-    - Random sender/receiver IDs (not ring_a_* pools)
+    - Persistent ring of 5 accounts cycling sender->receiver
     - Small amounts $50-$500 (below amount_high threshold)
     - Varied channels (web, mobile, branch -- not API)
-    - No velocity signals (time_since_last_txn_minutes set high)
+    - Circular flow builds graph patterns across calls
     """
+    global _stealth_ring_idx
+    sender = _STEALTH_RING[_stealth_ring_idx % len(_STEALTH_RING)]
+    receiver = _STEALTH_RING[(_stealth_ring_idx + 1) % len(_STEALTH_RING)]
+    _stealth_ring_idx += 1
+
     return {
-        "txn_id": str(uuid4()),
         "amount": round(random.uniform(50, 500), 2),
         "currency": "USD",
-        "sender_id": _random_id(),
-        "receiver_id": _random_id(),
+        "sender_id": sender,
+        "receiver_id": receiver,
         "txn_type": "transfer",
         "channel": random.choice(["web", "mobile", "branch"]),
         "ip_address": f"{random.randint(10,200)}.{random.randint(0,255)}.{random.randint(0,255)}.{random.randint(1,254)}",
         "device_id": uuid4().hex[:8],
         "is_fraud_ground_truth": True,
-        "time_since_last_txn_minutes": random.randint(15, 60),
         "metadata": {
             "evasion_strategy": "stealth_wash_trade",
             "fraud_type": "wash_trading",
@@ -90,29 +105,26 @@ def generate_stealth_wash_trade() -> dict:
 
 
 def generate_slow_velocity_abuse() -> dict:
-    """Velocity abuse that stays under velocity thresholds by spacing
-    transactions 10-15 minutes apart with moderate amounts.
+    """Velocity abuse with persistent sender pool so velocity builds across calls.
 
     Evasion tactics:
-    - time_since_last_txn_minutes = 10-15 (feature value ~0.75-0.83,
-      but below the 1.0 spike that rapid-fire produces)
+    - Persistent pool of 5 sender IDs so server-side velocity counters accumulate
     - Moderate amounts $500-$2000 (not flagged as high)
     - Different receiver each time
     - Web channel (not API)
-    - No sender velocity counters set (cold start)
     """
+    sender = random.choice(_SLOW_VELOCITY_SENDERS)
+
     return {
-        "txn_id": str(uuid4()),
         "amount": round(random.uniform(500, 2000), 2),
         "currency": random.choice(["USD", "EUR"]),
-        "sender_id": _random_id(),
+        "sender_id": sender,
         "receiver_id": _random_id(),
         "txn_type": random.choice(["transfer", "withdrawal"]),
         "channel": "web",
         "ip_address": f"{random.randint(10,200)}.{random.randint(0,255)}.{random.randint(0,255)}.{random.randint(1,254)}",
         "device_id": uuid4().hex[:8],
         "is_fraud_ground_truth": True,
-        "time_since_last_txn_minutes": random.randint(10, 15),
         "metadata": {
             "evasion_strategy": "slow_velocity_abuse",
             "fraud_type": "velocity_abuse",
@@ -128,12 +140,9 @@ def generate_legit_looking_fraud() -> dict:
     - Single large transfer $5000-$15000 from a 'new' sender_id
     - No prior history means no velocity signals fire
     - Web channel (lower risk than API)
-    - Business hours (not risky hours)
     - Low-risk IP country (US/GB/DE)
-    - first_time_counterparty not set (defaults to 0)
     """
     return {
-        "txn_id": str(uuid4()),
         "amount": round(random.uniform(5000, 15000), 2),
         "currency": "USD",
         "sender_id": _random_id(),
@@ -143,10 +152,9 @@ def generate_legit_looking_fraud() -> dict:
         "ip_address": f"{random.randint(10,200)}.{random.randint(0,255)}.{random.randint(0,255)}.{random.randint(1,254)}",
         "device_id": uuid4().hex[:8],
         "is_fraud_ground_truth": True,
-        "time_since_last_txn_minutes": 60,
         "metadata": {
             "evasion_strategy": "legit_looking_fraud",
-            "fraud_type": "spoofing",
+            "fraud_type": "unauthorized_transfer",
             **_low_risk_metadata(),
         },
     }
@@ -162,7 +170,6 @@ def generate_bonus_abuse_evasion() -> dict:
     - Different sender_ids (no velocity buildup)
     """
     return {
-        "txn_id": str(uuid4()),
         "amount": round(random.uniform(20, 80), 2),
         "currency": "USD",
         "sender_id": _random_id(),
@@ -172,7 +179,6 @@ def generate_bonus_abuse_evasion() -> dict:
         "ip_address": f"{random.randint(10,200)}.{random.randint(0,255)}.{random.randint(0,255)}.{random.randint(1,254)}",
         "device_id": uuid4().hex[:8],
         "is_fraud_ground_truth": True,
-        "time_since_last_txn_minutes": random.randint(60, 180),
         "metadata": {
             "evasion_strategy": "bonus_abuse_evasion",
             "fraud_type": "bonus_abuse",

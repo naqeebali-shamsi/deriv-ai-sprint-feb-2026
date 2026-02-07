@@ -20,11 +20,13 @@ FRAUD_RATE = _settings.FRAUD_RATE
 
 # --- User Pools (for consistent behavior patterns) ---
 NORMAL_USERS = [f"user_{i}" for i in range(1, 801)]
-FRAUD_RING_A = [f"ring_a_{i}" for i in range(1, 6)]  # 5-member ring
-FRAUD_RING_B = [f"ring_b_{i}" for i in range(1, 4)]  # 3-member ring
-STRUCTURERS = [f"smurfer_{i}" for i in range(1, 4)]
-VELOCITY_ABUSERS = [f"velocity_{i}" for i in range(1, 4)]
-BONUS_ABUSERS = [f"bonus_{i}" for i in range(1, 6)]
+FRAUD_RING_A = [f"ring_a_{i}" for i in range(1, 7)]  # 6-member ring
+FRAUD_RING_B = [f"ring_b_{i}" for i in range(1, 6)]  # 5-member ring
+FRAUD_RING_C = [f"ring_c_{i}" for i in range(1, 5)]  # 4-member ring (3rd ring)
+STRUCTURERS = [f"smurfer_{i}" for i in range(1, 11)]  # 10 structurers
+VELOCITY_ABUSERS = [f"velocity_{i}" for i in range(1, 9)]  # 8 velocity abusers
+UNAUTHORIZED_SENDERS = [f"unauth_{i}" for i in range(1, 11)]  # 10 unauthorized transfer senders
+BONUS_ABUSERS = [f"bonus_{i}" for i in range(1, 9)]  # 8 bonus abusers
 
 # Shared devices/IPs for bonus abuse detection
 SHARED_DEVICES = [f"dev_{uuid4().hex[:6]}" for _ in range(2)]
@@ -32,11 +34,11 @@ SHARED_IPS = [fake.ipv4() for _ in range(2)]
 
 # Fraud typology weights (how often each type appears when fraud is chosen)
 FRAUD_TYPES = {
-    "structuring": 0.25,      # Many small txns below thresholds
-    "velocity_abuse": 0.20,   # Rapid-fire from same sender
-    "wash_trading": 0.20,     # Circular A->B->C->A flows (Deriv-specific)
-    "spoofing": 0.15,         # Large amounts, transfer type (Deriv-specific)
-    "bonus_abuse": 0.20,      # Multiple linked accounts, small deposits
+    "structuring": 0.25,              # Many small txns below $10K threshold
+    "velocity_abuse": 0.20,           # Rapid-fire from same sender
+    "wash_trading": 0.20,             # Circular A->B->C->A flows (Deriv-specific)
+    "unauthorized_transfer": 0.15,    # Unauthorized large transfers
+    "bonus_abuse": 0.20,              # Multiple linked accounts, small deposits
 }
 
 
@@ -111,12 +113,13 @@ def generate_legit_transaction() -> dict:
 
 
 def generate_structuring_transaction() -> dict:
-    """Structuring (smurfing): many small transactions below reporting thresholds.
+    """Structuring (smurfing): many transactions just below the $10K BSA reporting threshold.
 
-    Key signals: amount clustering just below $1000, same sender, many receivers.
-    Overlaps with legit: amount range $200-$950 (overlaps with normal user range).
+    Key signals: amount clustering just below $10,000, same sender, many receivers.
+    Overlaps with legit: high-value legit transactions can reach this range.
     """
-    amount = random.uniform(200, 950)
+    amount = random.gauss(9500, 300)
+    amount = max(5000, min(amount, 9900))
     sender = random.choice(STRUCTURERS)
     receiver = random.choice(NORMAL_USERS)
 
@@ -170,7 +173,7 @@ def generate_wash_trading_transaction() -> dict:
     Key signals: ring members trading with each other, similar amounts round-tripping.
     Overlaps with legit: amounts can be moderate.
     """
-    ring = random.choice([FRAUD_RING_A, FRAUD_RING_B])
+    ring = random.choice([FRAUD_RING_A, FRAUD_RING_B, FRAUD_RING_C])
     idx = random.randint(0, len(ring) - 1)
     sender = ring[idx]
     receiver = ring[(idx + 1) % len(ring)]  # Next person in ring
@@ -196,15 +199,16 @@ def generate_wash_trading_transaction() -> dict:
     }
 
 
-def generate_spoofing_transaction() -> dict:
-    """Spoofing/Layering (Deriv-specific): large deceptive orders.
+def generate_unauthorized_transfer_transaction() -> dict:
+    """Unauthorized transfer: large transfers from compromised or fraudulent accounts.
 
-    Key signals: large amounts, transfer type, often via API.
-    Overlaps with legit: high-value transactions exist in normal trading too.
+    Key signals: large amounts, transfer type, mixed channels.
+    Overlaps with legit: high-value business transactions can be in this range.
     """
-    amount = _lognormal_amount(mean=8000, sigma=0.6, min_val=2000, max_val=50000)
-    sender = f"spoofer_{random.randint(1, 5)}"
+    amount = _lognormal_amount(mean=3000, sigma=0.8, min_val=500, max_val=50000)
+    sender = random.choice(UNAUTHORIZED_SENDERS)
     receiver = random.choice(NORMAL_USERS)
+    channel = random.choices(["api", "web"], weights=[60, 40])[0]
 
     return {
         "amount": amount,
@@ -212,13 +216,13 @@ def generate_spoofing_transaction() -> dict:
         "sender_id": sender,
         "receiver_id": receiver,
         "txn_type": "transfer",
-        "channel": "api",
+        "channel": channel,
         "ip_address": fake.ipv4(),
         "device_id": str(uuid4())[:8],
         "is_fraud_ground_truth": True,
         "metadata": {
-            "fraud_type": "spoofing",
-            **_generate_enterprise_metadata("transfer", "api")
+            "fraud_type": "unauthorized_transfer",
+            **_generate_enterprise_metadata("transfer", channel)
         },
     }
 
@@ -255,7 +259,7 @@ _FRAUD_GENERATORS = {
     "structuring": generate_structuring_transaction,
     "velocity_abuse": generate_velocity_abuse_transaction,
     "wash_trading": generate_wash_trading_transaction,
-    "spoofing": generate_spoofing_transaction,
+    "unauthorized_transfer": generate_unauthorized_transfer_transaction,
     "bonus_abuse": generate_bonus_abuse_transaction,
 }
 
@@ -296,7 +300,7 @@ def generate_transaction(is_fraud: bool = False, fraud_type: str | None = None) 
     """
     if is_fraud:
         ft = fraud_type or _pick_fraud_type()
-        generator = _FRAUD_GENERATORS.get(ft, generate_spoofing_transaction)
+        generator = _FRAUD_GENERATORS.get(ft, generate_unauthorized_transfer_transaction)
         return generator()
     else:
         return generate_legit_transaction()

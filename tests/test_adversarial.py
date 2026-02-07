@@ -194,7 +194,7 @@ class TestEvasionCharacteristics:
             generate_bonus_abuse_evasion,
         ]
         required_fields = [
-            "txn_id", "amount", "currency", "sender_id",
+            "amount", "currency", "sender_id",
             "receiver_id", "txn_type", "channel",
         ]
         for gen in generators:

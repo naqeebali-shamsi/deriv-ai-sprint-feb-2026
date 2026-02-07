@@ -3,6 +3,7 @@
 Requires a trained ML model (XGBClassifier from XGBoost).
 """
 import math
+import threading
 from dataclasses import dataclass
 from datetime import datetime
 from uuid import uuid4
@@ -36,7 +37,7 @@ def compute_features(txn: dict) -> dict:
     from the backend (prefixed with sender_*). If absent, velocity features
     default to 0 (cold start).
 
-    Features (27 core + 7 pattern-derived = 34 total):
+    Features (28 core + 7 pattern-derived = 35 total):
     - amount_normalized: amount / 10000, capped at 1.0
     - amount_log: log(amount + 1) / log(50001), normalized to [0,1]
     - amount_small: small amounts are relevant for bonus abuse
@@ -47,7 +48,8 @@ def compute_features(txn: dict) -> dict:
     - is_small_deposit: 1.0 if deposit <= $100
     - channel_web: 1.0 if web
     - channel_api: 1.0 if api (higher risk for automated transactions)
-    - hour_of_day: normalized hour (0-1), based on timestamp or current time
+    - hour_sin: sin(2*pi*hour/24) normalized to [0,1] (cyclical time)
+    - hour_cos: cos(2*pi*hour/24) normalized to [0,1] (cyclical time)
     - is_weekend: 1.0 if Saturday/Sunday
     - hour_risky: 1.0 if between 00:00-05:00 (risky hours)
     - sender_txn_count_1h: number of txns from sender in last hour (velocity)
@@ -102,8 +104,9 @@ def compute_features(txn: dict) -> dict:
     channel_web = 1.0 if channel == "web" else 0.0
     channel_api = 1.0 if channel == "api" else 0.0
 
-    # Temporal features
-    hour_of_day = hour / 23.0  # normalize to [0,1]
+    # Temporal features — cyclical encoding so hour 23 and hour 0 are close
+    hour_sin = (math.sin(2 * math.pi * hour / 24) + 1) / 2  # normalize [-1,1] -> [0,1]
+    hour_cos = (math.cos(2 * math.pi * hour / 24) + 1) / 2  # normalize [-1,1] -> [0,1]
     is_weekend = 1.0 if day_of_week >= 5 else 0.0
     hour_risky = 1.0 if hour < 5 else 0.0  # late night / early morning
 
@@ -182,7 +185,8 @@ def compute_features(txn: dict) -> dict:
         "is_small_deposit": is_small_deposit,
         "channel_web": channel_web,
         "channel_api": channel_api,
-        "hour_of_day": round(hour_of_day, 4),
+        "hour_sin": round(hour_sin, 4),
+        "hour_cos": round(hour_cos, 4),
         "is_weekend": is_weekend,
         "hour_risky": hour_risky,
         "sender_txn_count_1h": round(sender_txn_count_1h, 6),
@@ -209,26 +213,34 @@ def compute_features(txn: dict) -> dict:
     }
 
 
+_model_lock = threading.Lock()
+_model_state = {"model": None, "version": "missing"}
+
+
 def _get_ml_model():
-    """Lazy-load the ML model (cached). Only loads from disk on first call or after reload."""
-    if not hasattr(_get_ml_model, "_cache") or _get_ml_model._cache is None:
-        _get_ml_model._cache = None
-        _get_ml_model._version = "missing"
-        try:
-            from risk.trainer import load_model, get_model_version
-            model = load_model()
-            if model is not None:
-                _get_ml_model._cache = model
-                _get_ml_model._version = get_model_version()
-        except ImportError:
-            pass
-    return _get_ml_model._cache, _get_ml_model._version
+    """Lazy-load the ML model (cached, thread-safe). Only loads from disk on first call or after reload."""
+    if _model_state["model"] is None:
+        with _model_lock:
+            if _model_state["model"] is None:
+                try:
+                    from risk.trainer import load_model, get_model_version
+                    model = load_model()
+                    if model is not None:
+                        _model_state["model"] = model
+                        _model_state["version"] = get_model_version()
+                except ImportError:
+                    pass
+    return _model_state["model"], _model_state["version"]
 
 
 def reload_model():
-    """Force reload the ML model (call after retraining)."""
-    _get_ml_model._cache = None
-    _get_ml_model._version = "missing"
+    """Force reload the ML model (call after retraining). Thread-safe atomic swap."""
+    from risk.trainer import load_model, get_model_version
+    new_model = load_model()
+    new_version = get_model_version() if new_model else "missing"
+    with _model_lock:
+        _model_state["model"] = new_model
+        _model_state["version"] = new_version
 
 
 def score_transaction(txn: dict) -> RiskResult:
