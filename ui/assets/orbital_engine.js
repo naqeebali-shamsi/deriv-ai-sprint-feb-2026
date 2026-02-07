@@ -4,7 +4,7 @@
 // Drives the 3-zone fraud detection canvas:
 //   Left   ~25%  Defense Grid   (scanning rings, pod analysis)
 //   Middle ~40%  Transit Zone   (pods fly on Bezier curves)
-//   Right  ~35%  Fortress       (cleared pods become defense turrets)
+//   Right  ~35%  Earth          (cleared pods become orbiting satellites)
 //
 // Depends on PixelSprites (global) for all drawing primitives.
 // ============================================================================
@@ -17,8 +17,8 @@ const OrbitalEngine = (() => {
     '#00e5ff', '#1e88e5', '#80f0ff', '#40c4ff', '#7ec4cf', '#4ade80',
   ];
 
-  const MAX_PODS   = 50;
-  const MAX_DEFENSES = 20;
+  const MAX_PODS       = 50;
+  const MAX_SATELLITES = 30;
 
   // Duration constants (seconds)
   const SPAWN_DUR   = 2.0;
@@ -28,7 +28,18 @@ const OrbitalEngine = (() => {
   const CLEAR_DUR   = 1.5;
   const LAND_DUR    = 0.6;
   const BRAIN_DUR   = 1.5;
-  const DEFENSE_BUILD  = 15.0;
+  const MERGE_DUR   = 1.5;
+
+  // Orbit bands around Earth: radius multiplier and angular speed (rad/s)
+  const ORBIT_BANDS = [
+    { radius: 1.4, speed: 0.6  },  // closest, fastest
+    { radius: 1.8, speed: 0.45 },
+    { radius: 2.2, speed: 0.35 },
+    { radius: 2.6, speed: 0.25 },  // farthest, slowest
+  ];
+
+  const MERGE_THRESHOLD = 5;  // satellites of same generation to trigger merge
+  const MAX_GENERATION  = 4;  // gen 4 satellites never combine
 
   // --------------------------------------------------------------------------
   // Helpers
@@ -59,15 +70,16 @@ const OrbitalEngine = (() => {
 
       // State
       this.pods         = new Map();
-      this.plants       = [];
+      this.satellites   = [];
       this.brainPulses  = [];
-      this.effects      = []; // landing bursts, sparkles
+      this.effects      = []; // landing bursts, sparkles, merge flashes
       this.stats        = { totalPods: 0, activePods: 0, threats: 0, cleared: 0, plants: 0 };
       this.time         = 0;
       this.lastFrame    = performance.now();
       this.scanAngle    = 0;
       this._rafId       = null;
       this._destroyed   = false;
+      this._canvasWidth = canvas.width;
 
       // Resize
       this._onResize = this._handleResize.bind(this);
@@ -91,13 +103,14 @@ const OrbitalEngine = (() => {
       const w = this.canvas.width;
       const h = this.canvas.height;
       this.layout = {
-        defenseX:     w * 0.22,
-        defenseY:     h * 0.45,
-        defenseR:     Math.min(w, h) * 0.18,
-        fortressX:  w * 0.78,
-        fortressY:  h * 0.55,
-        fortressW:  w * 0.30,
-        fortressH:  h * 0.45,
+        defenseX:    w * 0.22,
+        defenseY:    h * 0.45,
+        defenseR:    Math.min(w, h) * 0.18,
+        fortressX:   w * 0.78,
+        fortressY:   h * 0.55,
+        fortressW:   w * 0.30,
+        fortressH:   h * 0.45,
+        earthRadius: Math.min(w, h) * 0.14,
       };
     }
 
@@ -107,6 +120,7 @@ const OrbitalEngine = (() => {
         this.canvas.width  = parent.clientWidth  || 800;
         this.canvas.height = parent.clientHeight || 500;
       }
+      this._canvasWidth = this.canvas.width;
       this._computeLayout();
     }
 
@@ -170,10 +184,10 @@ const OrbitalEngine = (() => {
         pod.progress  = 0;
         pod.spawnTime = this.time;
 
-        // Bezier toward fortress
+        // Bezier toward Earth
         const L  = this.layout;
         pod.targetX = L.fortressX;
-        pod.targetY = L.fortressY + L.fortressH * 0.3;
+        pod.targetY = L.fortressY + L.earthRadius * 0.5;
         pod.controlPoints = [{
           x: (pod.x + pod.targetX) * 0.5,
           y: pod.y - L.defenseR * 0.5 * (0.5 + Math.random()),
@@ -182,32 +196,44 @@ const OrbitalEngine = (() => {
       }
     }
 
-    addDefense(patternName) {
-      const L    = this.layout;
-      const cols = 5;
-      const idx  = this.plants.length % (cols * 4);
-      const col  = idx % cols;
-      const row  = Math.floor(idx / cols);
-      const spacing = L.fortressW / (cols + 1);
+    addSatellite() {
+      const L = this.layout;
 
-      const shieldColor = SHIELD_COLORS[Math.floor(Math.random() * SHIELD_COLORS.length)];
-      const plant = {
-        x:           L.fortressX - L.fortressW * 0.40 + (col + 1) * spacing,
-        y:           L.fortressY + L.fortressH * 0.35 - row * 28,
-        stage:       0,
+      // Find orbit band with fewest satellites
+      const bandCounts = ORBIT_BANDS.map(() => 0);
+      for (const sat of this.satellites) {
+        if (!sat.merging) bandCounts[sat.bandIndex]++;
+      }
+      let bestBand = 0;
+      let bestCount = bandCounts[0];
+      for (let i = 1; i < ORBIT_BANDS.length; i++) {
+        if (bandCounts[i] < bestCount) {
+          bestCount = bandCounts[i];
+          bestBand  = i;
+        }
+      }
+
+      const band = ORBIT_BANDS[bestBand];
+      const satellite = {
+        orbitRadius: band.radius * L.earthRadius,
+        orbitAngle:  Math.random() * Math.PI * 2,
+        orbitSpeed:  band.speed,
+        generation:  0,
         startTime:   this.time,
-        patternName: patternName || 'unknown',
-        shieldColor: shieldColor,
-        petalColor:  shieldColor, // backward-compat alias
+        merging:     false,
+        mergeTarget: null,
+        mergeProgress: 0,
+        bandIndex:   bestBand,
       };
 
-      this.plants.push(plant);
-      this.stats.plants = this.plants.length;
-      this._enforcePlantLimit();
+      this.satellites.push(satellite);
+      this.stats.plants = this.satellites.length;
+      this._enforceSatelliteLimit();
     }
 
-    // Backward-compat alias (called by OrbitalDataLayer)
-    addPlant(patternName) { return this.addDefense(patternName); }
+    // Backward-compat aliases (called by OrbitalDataLayer)
+    addDefense(patternName) { return this.addSatellite(); }
+    addPlant(patternName)   { return this.addSatellite(); }
 
     triggerBrainPulse() {
       const L = this.layout;
@@ -222,6 +248,7 @@ const OrbitalEngine = (() => {
     getStats() {
       this.stats.activePods = 0;
       this.pods.forEach(p => { if (p.state !== 'done') this.stats.activePods++; });
+      this.stats.plants = this.satellites.length;
       return { ...this.stats };
     }
 
@@ -266,8 +293,110 @@ const OrbitalEngine = (() => {
       }
     }
 
-    _enforcePlantLimit() {
-      while (this.plants.length > MAX_DEFENSES) this.plants.shift();
+    _enforceSatelliteLimit() {
+      while (this.satellites.length > MAX_SATELLITES) this.satellites.shift();
+    }
+
+    // ======================================================================
+    // Satellite merge logic
+    // ======================================================================
+
+    _checkSatelliteMerges() {
+      const L = this.layout;
+
+      // Group non-merging satellites by (bandIndex, generation)
+      const groups = {};
+      for (let i = 0; i < this.satellites.length; i++) {
+        const sat = this.satellites[i];
+        if (sat.merging || sat.generation >= MAX_GENERATION) continue;
+        const key = sat.bandIndex + ':' + sat.generation;
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(i);
+      }
+
+      // For each group with >= MERGE_THRESHOLD, initiate merge
+      for (const key in groups) {
+        const indices = groups[key];
+        if (indices.length < MERGE_THRESHOLD) continue;
+
+        // Take the first 5
+        const mergeIndices = indices.slice(0, MERGE_THRESHOLD);
+
+        // Compute average position as merge target
+        let avgX = 0, avgY = 0;
+        for (const idx of mergeIndices) {
+          const sat = this.satellites[idx];
+          const sx = L.fortressX + Math.cos(sat.orbitAngle) * sat.orbitRadius;
+          const sy = L.fortressY + Math.sin(sat.orbitAngle) * sat.orbitRadius * 0.45;
+          avgX += sx;
+          avgY += sy;
+        }
+        avgX /= MERGE_THRESHOLD;
+        avgY /= MERGE_THRESHOLD;
+
+        for (const idx of mergeIndices) {
+          const sat = this.satellites[idx];
+          sat.merging       = true;
+          sat.mergeTarget   = { x: avgX, y: avgY };
+          sat.mergeProgress = 0;
+          sat._mergeStart   = this.time;
+          sat._mergeGen     = sat.generation;
+          sat._mergeBand    = sat.bandIndex;
+        }
+      }
+    }
+
+    _updateSatelliteMerges(dt) {
+      const L = this.layout;
+
+      // Advance merge progress for all merging satellites
+      for (const sat of this.satellites) {
+        if (!sat.merging) continue;
+        sat.mergeProgress = clamp((this.time - sat._mergeStart) / MERGE_DUR, 0, 1);
+      }
+
+      // Collect all completed merge groups (keyed by gen:band)
+      const completed = {};
+      for (const sat of this.satellites) {
+        if (!sat.merging || sat.mergeProgress < 1) continue;
+        const key = sat._mergeGen + ':' + sat._mergeBand;
+        if (!completed[key]) {
+          completed[key] = { gen: sat._mergeGen, band: sat._mergeBand, x: sat.mergeTarget.x, y: sat.mergeTarget.y };
+        }
+      }
+
+      // Process all completed groups in one pass
+      for (const key in completed) {
+        const { gen, band: bandIdx, x: cx, y: cy } = completed[key];
+
+        // Remove merged satellites for this group
+        this.satellites = this.satellites.filter(
+          sat => !(sat.merging && sat.mergeProgress >= 1 &&
+                   sat._mergeGen === gen && sat._mergeBand === bandIdx)
+        );
+
+        // Add one upgraded satellite
+        const newGen = Math.min(gen + 1, MAX_GENERATION);
+        const band   = ORBIT_BANDS[bandIdx];
+        this.satellites.push({
+          orbitRadius:   band.radius * L.earthRadius,
+          orbitAngle:    Math.atan2((cy - L.fortressY) / 0.45, cx - L.fortressX),
+          orbitSpeed:    band.speed,
+          generation:    newGen,
+          startTime:     this.time,
+          merging:       false,
+          mergeTarget:   null,
+          mergeProgress: 0,
+          bandIndex:     bandIdx,
+        });
+
+        // Merge flash effect
+        this.effects.push({ type: 'merge', x: cx, y: cy, startTime: this.time });
+      }
+
+      if (Object.keys(completed).length > 0) {
+        this.stats.plants = this.satellites.length;
+      }
     }
 
     // ======================================================================
@@ -293,6 +422,8 @@ const OrbitalEngine = (() => {
 
     _update(dt) {
       const L = this.layout;
+      const w = this.canvas.width;
+      this._canvasWidth = w;
 
       // --- Pods ---
       for (const [id, p] of this.pods) {
@@ -326,7 +457,7 @@ const OrbitalEngine = (() => {
             const angle  = this.time * 2.5 + (parseInt(id, 36) % 100) * 0.5;
             p.x = L.defenseX + Math.cos(angle) * orbitR * (0.3 + p.progress * 0.7);
             p.y = L.defenseY + Math.sin(angle) * orbitR * 0.6 * (0.3 + p.progress * 0.7);
-            // Stay scanning until classifyPod is called — no auto-transition
+            // Stay scanning until classifyPod is called -- no auto-transition
             break;
           }
           case 'flagged': {
@@ -334,11 +465,12 @@ const OrbitalEngine = (() => {
             if (elapsed < FLAG_SHAKE) {
               // Shake in place
             } else {
-              // Fly upward off-screen
+              // Fly RIGHT toward inspection queue panel with slight arc
               const exitT = (elapsed - FLAG_SHAKE) / FLAG_EXIT;
-              p.y = p.y - dt * (300 + exitT * 400);
+              p.x += dt * (400 + exitT * 300);
+              p.y -= dt * (40 - exitT * 80); // slight arc: up then down
             }
-            if (p.y < -p.size * 2) p.state = 'done';
+            if (p.x > w + p.size * 2) p.state = 'done';
             break;
           }
           case 'clearing': {
@@ -358,8 +490,8 @@ const OrbitalEngine = (() => {
           case 'landing': {
             p.progress = clamp(elapsed / LAND_DUR, 0, 1);
             if (p.progress >= 1) {
-              // Convert to defense turret
-              this.addDefense(p.metadata.fraud_type || p.metadata.txn_type || 'trade');
+              // Convert to orbiting satellite
+              this.addSatellite();
               // Landing burst effect
               this.effects.push({
                 type:      'landing',
@@ -375,11 +507,14 @@ const OrbitalEngine = (() => {
         }
       }
 
-      // --- Defenses: advance build stage ---
-      for (const plant of this.plants) {
-        const age = this.time - plant.startTime;
-        plant.stage = clamp(Math.floor((age / DEFENSE_BUILD) * 4), 0, 3);
+      // --- Satellites: advance orbit angles + merge logic ---
+      for (const sat of this.satellites) {
+        if (!sat.merging) {
+          sat.orbitAngle += sat.orbitSpeed * dt;
+        }
       }
+      this._checkSatelliteMerges();
+      this._updateSatelliteMerges(dt);
 
       // --- Clean up expired brain pulses and effects ---
       this.brainPulses = this.brainPulses.filter(
@@ -416,19 +551,64 @@ const OrbitalEngine = (() => {
         time:       this.time,
       });
 
-      // 4. Fortress dome
-      PS.drawFortressDome(ctx, L.fortressX, L.fortressY, L.fortressW, L.fortressH, {
-        time: this.time,
-      });
-
-      // 5. Defense turrets
-      const plantSize = clamp(Math.min(w, h) / 300, 1.2, 3);
-      for (const plant of this.plants) {
-        PS.drawDefenseAtStage(ctx, plant.x, plant.y, plantSize, plant.stage, {
-          time:        this.time,
-          shieldColor: plant.shieldColor,
-          petalColor:  plant.petalColor, // backward-compat
+      // 4. Earth (replaces fortress dome)
+      if (PS.drawEarth) {
+        PS.drawEarth(ctx, L.fortressX, L.fortressY, L.earthRadius, {
+          time: this.time,
         });
+      } else {
+        // Fallback to fortress dome if drawEarth not available yet
+        PS.drawFortressDome(ctx, L.fortressX, L.fortressY, L.fortressW, L.fortressH, {
+          time: this.time,
+        });
+      }
+
+      // 4b. Draw orbit band rings (faint ellipses)
+      ctx.save();
+      ctx.strokeStyle = 'rgba(100, 180, 255, 0.08)';
+      ctx.lineWidth   = 1;
+      for (const band of ORBIT_BANDS) {
+        const rx = band.radius * L.earthRadius;
+        const ry = rx * 0.45; // perspective squash
+        ctx.beginPath();
+        ctx.ellipse(L.fortressX, L.fortressY, rx, ry, 0, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      // 5. Orbiting satellites (replaces defense turrets)
+      for (const sat of this.satellites) {
+        let sx, sy;
+
+        if (sat.merging && sat.mergeTarget) {
+          // Interpolate from orbit position to merge target
+          const orbitX = L.fortressX + Math.cos(sat.orbitAngle) * sat.orbitRadius;
+          const orbitY = L.fortressY + Math.sin(sat.orbitAngle) * sat.orbitRadius * 0.45;
+          const t = sat.mergeProgress;
+          // Ease-in-out
+          const eased = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+          sx = orbitX + (sat.mergeTarget.x - orbitX) * eased;
+          sy = orbitY + (sat.mergeTarget.y - orbitY) * eased;
+        } else {
+          sx = L.fortressX + Math.cos(sat.orbitAngle) * sat.orbitRadius;
+          sy = L.fortressY + Math.sin(sat.orbitAngle) * sat.orbitRadius * 0.45;
+        }
+
+        const satSize = clamp(1 + sat.generation * 0.4, 1, 3);
+
+        if (PS.drawSatellite) {
+          PS.drawSatellite(ctx, sx, sy, satSize, sat.generation, {
+            time: this.time,
+          });
+        } else {
+          // Fallback: draw a simple circle if drawSatellite not available yet
+          const r = 3 + sat.generation * 2;
+          const genColors = ['#80f0ff', '#4ade80', '#facc15', '#f97316', '#ef4444'];
+          ctx.fillStyle = genColors[sat.generation] || '#80f0ff';
+          ctx.beginPath();
+          ctx.arc(sx, sy, r * satSize * 0.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
       }
 
       // 6. Pods
@@ -498,7 +678,7 @@ const OrbitalEngine = (() => {
         PS.drawBrainPulse(ctx, bp.x, bp.y, progress, { maxRadius: bp.maxRadius });
       }
 
-      // 8. Landing burst / sparkle effects
+      // 8. Landing burst / sparkle / merge flash effects
       for (const ef of this.effects) {
         const progress = clamp((this.time - ef.startTime) / 1.2, 0, 1);
         if (ef.type === 'landing') {
@@ -517,6 +697,21 @@ const OrbitalEngine = (() => {
               6, progress, C.clearGreen
             );
           }
+        } else if (ef.type === 'merge') {
+          // Merge flash: bright pulse with gold/cyan sparkles
+          PS.drawBrainPulse(ctx, ef.x, ef.y, progress, {
+            maxRadius: 40,
+          });
+          for (let i = 0; i < 6; i++) {
+            const angle = (i / 6) * Math.PI * 2 + this.time * 3;
+            const dist  = progress * 30;
+            PS.drawSparkle(
+              ctx,
+              ef.x + Math.cos(angle) * dist,
+              ef.y + Math.sin(angle) * dist,
+              8, progress, '#facc15'
+            );
+          }
         }
       }
 
@@ -524,6 +719,12 @@ const OrbitalEngine = (() => {
       PS.drawScanlines(ctx, w, h, { alpha: 0.03 });
     }
   }
+
+  // Backward compatibility: expose plants getter that returns satellites
+  Object.defineProperty(OrbitalEngine.prototype, 'plants', {
+    get() { return this.satellites; },
+    set(val) { this.satellites = val; },
+  });
 
   return OrbitalEngine;
 })();

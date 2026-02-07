@@ -325,10 +325,672 @@ const PixelSprites = (() => {
 
 
   // ==========================================================================
-  // 4.  DEFENSE GRID RING
+  // 4a. DEATH STAR (center icon for defense grid)
   // ==========================================================================
   //
-  //  Concentric circles + scanning beam + pixel-art shield at center.
+  //  Canvas arc/path Death Star.  Larger than 16x16, so we use arc() ops
+  //  rather than the pixel grid.
+  //
+  //  Parameters:
+  //    ctx     - CanvasRenderingContext2D
+  //    x, y    - center
+  //    radius  - sphere radius in pixels
+  //    options - { time }
+  //
+  function drawDeathStar(ctx, x, y, radius, options) {
+    options = options || {};
+    const t = options.time || 0;
+    const r = radius;
+
+    ctx.save();
+
+    // --- main body: filled circle ---
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = C.steelGray;
+    ctx.fill();
+
+    // --- right-half shadow (clip to right semicircle) ---
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(x, y, r, -Math.PI * 0.5, Math.PI * 0.5);
+    ctx.closePath();
+    ctx.clip();
+    ctx.fillStyle = rgba(C.steelDark, 0.55);
+    ctx.fillRect(x, y - r, r, r * 2);
+    ctx.restore();
+
+    // --- surface panel grid lines (subtle) ---
+    ctx.strokeStyle = rgba('#000000', 0.08);
+    ctx.lineWidth = 0.8;
+    // horizontal lines
+    const hLines = 5;
+    for (let i = 1; i < hLines; i++) {
+      const ly = y - r + (2 * r * i) / hLines;
+      const dx = Math.sqrt(r * r - (ly - y) * (ly - y));
+      ctx.beginPath();
+      ctx.moveTo(x - dx, ly);
+      ctx.lineTo(x + dx, ly);
+      ctx.stroke();
+    }
+    // vertical lines
+    const vLines = 5;
+    for (let i = 1; i < vLines; i++) {
+      const lx = x - r + (2 * r * i) / vLines;
+      const dy = Math.sqrt(r * r - (lx - x) * (lx - x));
+      ctx.beginPath();
+      ctx.moveTo(lx, y - dy);
+      ctx.lineTo(lx, y + dy);
+      ctx.stroke();
+    }
+
+    // --- equatorial trench (horizontal band across center) ---
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.fillStyle = rgba(C.platformDeep, 0.45);
+    ctx.fillRect(x - r, y - r * 0.04, r * 2, r * 0.08);
+    // trench detail lines
+    ctx.strokeStyle = rgba('#000000', 0.2);
+    ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    ctx.moveTo(x - r, y - r * 0.04);
+    ctx.lineTo(x + r, y - r * 0.04);
+    ctx.moveTo(x - r, y + r * 0.04);
+    ctx.lineTo(x + r, y + r * 0.04);
+    ctx.stroke();
+    ctx.restore();
+
+    // --- superlaser dish (concave hemisphere, upper-right quadrant) ---
+    const dishCx = x + r * 0.3;
+    const dishCy = y - r * 0.25;
+    const dishR = r * 0.28;
+
+    ctx.save();
+    // clip to main sphere
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.clip();
+
+    // dish concavity (dark circle)
+    ctx.beginPath();
+    ctx.arc(dishCx, dishCy, dishR, 0, Math.PI * 2);
+    ctx.fillStyle = C.platformDeep;
+    ctx.fill();
+
+    // dish inner ring
+    ctx.beginPath();
+    ctx.arc(dishCx, dishCy, dishR * 0.7, 0, Math.PI * 2);
+    ctx.fillStyle = rgba('#1a2030', 0.8);
+    ctx.fill();
+
+    // dish rim highlight
+    ctx.beginPath();
+    ctx.arc(dishCx, dishCy, dishR, 0, Math.PI * 2);
+    ctx.strokeStyle = rgba(C.steelLight, 0.4);
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.restore();
+
+    // --- superlaser energy point (pulsing glow) ---
+    const pulseA = 0.5 + Math.sin(t * 3) * 0.25;
+    glow(ctx, dishCx, dishCy, dishR * 1.2, C.energyCyan, pulseA * 0.4);
+    glow(ctx, dishCx, dishCy, dishR * 0.5, C.energyCyan, pulseA * 0.7);
+    // bright core dot
+    ctx.beginPath();
+    ctx.arc(dishCx, dishCy, r * 0.03, 0, Math.PI * 2);
+    ctx.fillStyle = rgba(C.energyBright, pulseA);
+    ctx.fill();
+
+    // --- sphere outline ---
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.strokeStyle = rgba('#000000', 0.3);
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // --- top-left specular highlight ---
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.clip();
+    const specGrad = ctx.createRadialGradient(
+      x - r * 0.35, y - r * 0.35, 0,
+      x - r * 0.35, y - r * 0.35, r * 0.6
+    );
+    specGrad.addColorStop(0, rgba(C.white, 0.15));
+    specGrad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = specGrad;
+    ctx.fillRect(x - r, y - r, r * 2, r * 2);
+    ctx.restore();
+
+    ctx.restore();
+  }
+
+
+  // ==========================================================================
+  // 4b. EARTH (full spherical planet)
+  // ==========================================================================
+  //
+  //  Canvas arc/path Earth.  Ocean, continents, ice caps, clouds, atmosphere.
+  //
+  //  Parameters:
+  //    ctx     - CanvasRenderingContext2D
+  //    x, y    - center
+  //    radius  - sphere radius in pixels
+  //    options - { time }
+  //
+  function drawEarth(ctx, x, y, radius, options) {
+    options = options || {};
+    const t = options.time || 0;
+    const r = radius;
+
+    ctx.save();
+
+    // --- base ocean sphere ---
+    const oceanGrad = ctx.createRadialGradient(
+      x - r * 0.3, y - r * 0.3, 0,
+      x, y, r
+    );
+    oceanGrad.addColorStop(0, '#1976d2');
+    oceanGrad.addColorStop(0.7, '#1565c0');
+    oceanGrad.addColorStop(1, '#0d47a1');
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = oceanGrad;
+    ctx.fill();
+
+    // clip all surface features to the sphere
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.clip();
+
+    // --- continents (simplified blobs) ---
+    // slow "rotation" offset
+    const rotOffset = Math.sin(t * 0.05) * r * 0.1;
+
+    // continent 1 (Americas-like, left-center)
+    ctx.fillStyle = '#2e7d32';
+    ctx.beginPath();
+    ctx.ellipse(x - r * 0.2 + rotOffset, y - r * 0.15, r * 0.2, r * 0.35, -0.3, 0, Math.PI * 2);
+    ctx.fill();
+    // sub-blob (South America)
+    ctx.beginPath();
+    ctx.ellipse(x - r * 0.15 + rotOffset, y + r * 0.25, r * 0.12, r * 0.2, 0.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // continent 2 (Eurasia-like, upper right)
+    ctx.fillStyle = '#33691e';
+    ctx.beginPath();
+    ctx.ellipse(x + r * 0.3 + rotOffset, y - r * 0.2, r * 0.3, r * 0.15, 0.1, 0, Math.PI * 2);
+    ctx.fill();
+
+    // continent 3 (Africa-like, center right)
+    ctx.fillStyle = '#8d6e63';
+    ctx.beginPath();
+    ctx.ellipse(x + r * 0.15 + rotOffset, y + r * 0.1, r * 0.12, r * 0.22, 0.15, 0, Math.PI * 2);
+    ctx.fill();
+
+    // continent 4 (small island, lower left)
+    ctx.fillStyle = '#2e7d32';
+    ctx.beginPath();
+    ctx.ellipse(x - r * 0.4 + rotOffset, y + r * 0.35, r * 0.08, r * 0.06, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // --- ice caps ---
+    ctx.fillStyle = rgba('#e0e0e0', 0.7);
+    // north pole
+    ctx.beginPath();
+    ctx.ellipse(x, y - r * 0.88, r * 0.35, r * 0.1, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // south pole
+    ctx.beginPath();
+    ctx.ellipse(x, y + r * 0.9, r * 0.3, r * 0.08, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // --- cloud wisps (semi-transparent, drifting) ---
+    ctx.fillStyle = rgba('#ffffff', 0.18);
+    const cloudDrift = t * 0.08;
+    // cloud 1
+    ctx.beginPath();
+    ctx.ellipse(x - r * 0.3 + Math.sin(cloudDrift) * r * 0.15, y - r * 0.4, r * 0.25, r * 0.05, 0.3, 0, Math.PI * 2);
+    ctx.fill();
+    // cloud 2
+    ctx.beginPath();
+    ctx.ellipse(x + r * 0.2 + Math.sin(cloudDrift + 1.5) * r * 0.1, y + r * 0.05, r * 0.2, r * 0.04, -0.2, 0, Math.PI * 2);
+    ctx.fill();
+    // cloud 3
+    ctx.beginPath();
+    ctx.ellipse(x + Math.sin(cloudDrift + 3) * r * 0.12, y + r * 0.35, r * 0.18, r * 0.04, 0.1, 0, Math.PI * 2);
+    ctx.fill();
+
+    // --- space shadow (darken right ~30%) ---
+    const shadowGrad = ctx.createLinearGradient(x + r * 0.3, y, x + r, y);
+    shadowGrad.addColorStop(0, 'rgba(0,0,0,0)');
+    shadowGrad.addColorStop(1, 'rgba(0,0,0,0.45)');
+    ctx.fillStyle = shadowGrad;
+    ctx.fillRect(x - r, y - r, r * 2, r * 2);
+
+    ctx.restore(); // end clip
+
+    // --- atmosphere glow ring ---
+    ctx.beginPath();
+    ctx.arc(x, y, r + 2, 0, Math.PI * 2);
+    ctx.strokeStyle = rgba('#64b5f6', 0.2);
+    ctx.lineWidth = 4;
+    ctx.stroke();
+
+    glow(ctx, x, y, r + 8, '#64b5f6', 0.08);
+
+    // --- sphere outline ---
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.strokeStyle = rgba('#0d47a1', 0.4);
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+
+  // ==========================================================================
+  // 4c. SATELLITE (5 generations, pixel art style)
+  // ==========================================================================
+  //
+  //  Parameters:
+  //    ctx        - CanvasRenderingContext2D
+  //    x, y       - center of the sprite
+  //    size       - base pixel unit multiplier
+  //    generation - 0..4
+  //    options    - { time }
+  //
+  function drawSatellite(ctx, x, y, size, generation, options) {
+    size = size || 1;
+    generation = generation || 0;
+    options = options || {};
+    const s = size;
+    const t = options.time || 0;
+    const gen = Math.max(0, Math.min(4, Math.floor(generation)));
+
+    switch (gen) {
+
+      // -- Gen 0: tiny 8x8 satellite --
+      case 0: {
+        const bx = x - 4 * s;
+        const by = y - 4 * s;
+
+        glow(ctx, x, y, 6 * s, C.energyCyan, 0.15);
+
+        // body (3x2)
+        pxBatch(ctx, bx, by, s, C.steelGray, [
+          [3,3],[4,3],[5,3],
+          [3,4],[4,4],[5,4],
+        ]);
+        // left solar panel (2x1)
+        pxBatch(ctx, bx, by, s, C.energyCyan, [
+          [1,3],[2,3],
+        ]);
+        // right solar panel (2x1)
+        pxBatch(ctx, bx, by, s, C.energyCyan, [
+          [6,3],[7,3],
+        ]);
+        // panel connector
+        pxBatch(ctx, bx, by, s, C.steelDark, [
+          [2,4],[6,4],
+        ]);
+        // antenna
+        pxBatch(ctx, bx, by, s, C.steelLight, [
+          [4,2],[4,1],
+        ]);
+        // blinking light at top
+        const blink0 = Math.sin(t * 5) > 0.3 ? 0.9 : 0.1;
+        pxBatch(ctx, bx, by, s, rgba(C.white, blink0), [
+          [4,1],
+        ]);
+        // panel shimmer
+        const shimmer0 = 0.3 + Math.sin(t * 2) * 0.15;
+        pxBatch(ctx, bx, by, s, rgba(C.energyBright, shimmer0), [
+          [1,3],[7,3],
+        ]);
+        break;
+      }
+
+      // -- Gen 1: small 10x10 satellite --
+      case 1: {
+        const bx = x - 5 * s;
+        const by = y - 5 * s;
+
+        glow(ctx, x, y, 8 * s, C.energyCyan, 0.18);
+
+        // body (4x3)
+        pxBatch(ctx, bx, by, s, C.steelGray, [
+          [3,4],[4,4],[5,4],[6,4],
+          [3,5],[4,5],[5,5],[6,5],
+          [3,6],[4,6],[5,6],[6,6],
+        ]);
+        // body highlight
+        pxBatch(ctx, bx, by, s, C.steelLight, [
+          [3,4],[4,4],
+        ]);
+        // left solar panels (3x2)
+        pxBatch(ctx, bx, by, s, C.energyCyan, [
+          [0,4],[1,4],[2,4],
+          [0,5],[1,5],[2,5],
+        ]);
+        // right solar panels (3x2)
+        pxBatch(ctx, bx, by, s, C.energyCyan, [
+          [7,4],[8,4],[9,4],
+          [7,5],[8,5],[9,5],
+        ]);
+        // antenna dish
+        pxBatch(ctx, bx, by, s, C.steelGray, [
+          [4,3],[5,3],
+          [4,2],[5,2],[6,2],
+        ]);
+        // antenna tip
+        pxBatch(ctx, bx, by, s, C.amber, [
+          [5,1],
+        ]);
+        // blinking light
+        const blink1 = Math.sin(t * 4) > 0.2 ? 0.85 : 0.1;
+        pxBatch(ctx, bx, by, s, rgba(C.white, blink1), [
+          [5,1],
+        ]);
+        // panel shimmer
+        const shimmer1 = 0.25 + Math.sin(t * 2.5) * 0.2;
+        pxBatch(ctx, bx, by, s, rgba(C.energyBright, shimmer1), [
+          [0,4],[9,4],
+        ]);
+        break;
+      }
+
+      // -- Gen 2: medium 14x14 satellite --
+      case 2: {
+        const bx = x - 7 * s;
+        const by = y - 7 * s;
+
+        glow(ctx, x, y, 10 * s, C.energyCyan, 0.2);
+
+        // cylindrical body (5x4)
+        pxBatch(ctx, bx, by, s, C.steelLight, [
+          [5,5],[6,5],[7,5],[8,5],[9,5],
+          [5,6],[6,6],[7,6],[8,6],[9,6],
+          [5,7],[6,7],[7,7],[8,7],[9,7],
+          [5,8],[6,8],[7,8],[8,8],[9,8],
+        ]);
+        // body shadow (right side)
+        pxBatch(ctx, bx, by, s, C.steelGray, [
+          [9,5],[9,6],[9,7],[9,8],
+          [8,8],[9,8],
+        ]);
+        // left solar panels (4x3, double array)
+        pxBatch(ctx, bx, by, s, C.energyCyan, [
+          [0,5],[1,5],[2,5],[3,5],
+          [0,6],[1,6],[2,6],[3,6],
+          [0,7],[1,7],[2,7],[3,7],
+        ]);
+        // panel divider
+        pxBatch(ctx, bx, by, s, C.steelDark, [
+          [4,5],[4,6],[4,7],
+        ]);
+        // right solar panels (4x3, double array)
+        pxBatch(ctx, bx, by, s, C.energyCyan, [
+          [10,5],[11,5],[12,5],[13,5],
+          [10,6],[11,6],[12,6],[13,6],
+          [10,7],[11,7],[12,7],[13,7],
+        ]);
+        // panel divider
+        pxBatch(ctx, bx, by, s, C.steelDark, [
+          [10,5],[10,6],[10,7],
+        ]);
+        // dish antenna pointing up
+        pxBatch(ctx, bx, by, s, C.energyBlue, [
+          [6,4],[7,4],[8,4],
+          [5,3],[6,3],[7,3],[8,3],[9,3],
+          [6,2],[7,2],[8,2],
+        ]);
+        // dish stem
+        pxBatch(ctx, bx, by, s, C.steelGray, [
+          [7,4],[7,5],
+        ]);
+        // blinking lights
+        const blink2a = Math.sin(t * 3.5) > 0.3 ? 0.8 : 0.1;
+        const blink2b = Math.sin(t * 3.5 + Math.PI) > 0.3 ? 0.8 : 0.1;
+        pxBatch(ctx, bx, by, s, rgba(C.energyCyan, blink2a), [
+          [5,5],
+        ]);
+        pxBatch(ctx, bx, by, s, rgba(C.threatRed, blink2b), [
+          [9,5],
+        ]);
+        // solar panel shimmer
+        const shimmer2 = 0.2 + Math.sin(t * 2) * 0.15;
+        pxBatch(ctx, bx, by, s, rgba(C.energyBright, shimmer2), [
+          [0,5],[1,6],[13,5],[12,6],
+        ]);
+        break;
+      }
+
+      // -- Gen 3: large 18x18 modular station --
+      case 3: {
+        const bx = x - 9 * s;
+        const by = y - 9 * s;
+
+        glow(ctx, x, y, 14 * s, C.energyCyan, 0.22);
+
+        // modular body (7x5)
+        pxBatch(ctx, bx, by, s, C.steelLight, [
+          [6,7],[7,7],[8,7],[9,7],[10,7],[11,7],[12,7],
+          [6,8],[7,8],[8,8],[9,8],[10,8],[11,8],[12,8],
+          [6,9],[7,9],[8,9],[9,9],[10,9],[11,9],[12,9],
+          [6,10],[7,10],[8,10],[9,10],[10,10],[11,10],[12,10],
+          [6,11],[7,11],[8,11],[9,11],[10,11],[11,11],[12,11],
+        ]);
+        // body panel lines
+        pxBatch(ctx, bx, by, s, C.steelGray, [
+          [9,7],[9,8],[9,9],[9,10],[9,11],
+          [6,9],[7,9],[8,9],[9,9],[10,9],[11,9],[12,9],
+        ]);
+        // body shadow
+        pxBatch(ctx, bx, by, s, C.steelDark, [
+          [12,7],[12,8],[12,9],[12,10],[12,11],
+          [11,11],[12,11],
+        ]);
+        // left solar arrays (multi-segment)
+        pxBatch(ctx, bx, by, s, C.energyCyan, [
+          [0,7],[1,7],[2,7],[3,7],[4,7],
+          [0,8],[1,8],[2,8],[3,8],[4,8],
+          [0,9],[1,9],[2,9],[3,9],[4,9],
+          [0,10],[1,10],[2,10],[3,10],[4,10],
+          [0,11],[1,11],[2,11],[3,11],[4,11],
+        ]);
+        pxBatch(ctx, bx, by, s, C.steelDark, [
+          [5,7],[5,8],[5,9],[5,10],[5,11],
+          [2,7],[2,8],[2,9],[2,10],[2,11],
+        ]);
+        // right solar arrays
+        pxBatch(ctx, bx, by, s, C.energyCyan, [
+          [13,7],[14,7],[15,7],[16,7],[17,7],
+          [13,8],[14,8],[15,8],[16,8],[17,8],
+          [13,9],[14,9],[15,9],[16,9],[17,9],
+          [13,10],[14,10],[15,10],[16,10],[17,10],
+          [13,11],[14,11],[15,11],[16,11],[17,11],
+        ]);
+        pxBatch(ctx, bx, by, s, C.steelDark, [
+          [13,7],[13,8],[13,9],[13,10],[13,11],
+          [15,7],[15,8],[15,9],[15,10],[15,11],
+        ]);
+        // dish antenna 1 (upper left)
+        pxBatch(ctx, bx, by, s, C.steelGray, [
+          [7,6],[8,6],
+          [6,5],[7,5],[8,5],[9,5],
+          [7,4],[8,4],
+        ]);
+        pxBatch(ctx, bx, by, s, C.steelLight, [
+          [7,4],
+        ]);
+        // dish antenna 2 (upper right)
+        pxBatch(ctx, bx, by, s, C.steelGray, [
+          [10,6],[11,6],
+          [10,5],[11,5],[12,5],
+          [11,4],
+        ]);
+        // docking port (bottom center)
+        pxBatch(ctx, bx, by, s, C.platformDeep, [
+          [8,12],[9,12],[10,12],
+          [9,13],
+        ]);
+        pxBatch(ctx, bx, by, s, C.steelGray, [
+          [8,12],[10,12],
+        ]);
+        // energy glows
+        const glow3a = 0.4 + Math.sin(t * 3) * 0.2;
+        glow(ctx, bx + 7.5 * s, by + 4 * s, 3 * s, C.energyBright, glow3a);
+        glow(ctx, bx + 11 * s, by + 4 * s, 2.5 * s, C.energyBright, glow3a * 0.7);
+        // blinking lights
+        const blink3 = Math.sin(t * 4) > 0.2 ? 0.9 : 0.15;
+        pxBatch(ctx, bx, by, s, rgba(C.energyBright, blink3), [
+          [6,7],[12,7],
+        ]);
+        const blink3b = Math.sin(t * 4 + 2) > 0.2 ? 0.8 : 0.1;
+        pxBatch(ctx, bx, by, s, rgba(C.threatRed, blink3b), [
+          [9,12],
+        ]);
+        // solar panel shimmer
+        const shimmer3 = 0.2 + Math.sin(t * 1.8) * 0.15;
+        pxBatch(ctx, bx, by, s, rgba(C.energyBright, shimmer3), [
+          [0,8],[1,9],[4,7],[17,8],[16,9],[14,7],
+        ]);
+        break;
+      }
+
+      // -- Gen 4: mega 22x22 ring station --
+      case 4: {
+        const bx = x - 11 * s;
+        const by = y - 11 * s;
+
+        // outer energy field glow
+        const fieldA = 0.12 + Math.sin(t * 1.5) * 0.06;
+        glow(ctx, x, y, 16 * s, C.energyCyan, fieldA);
+
+        // ring structure (outer)
+        const ringCoords = [];
+        // top arc
+        for (let i = 5; i <= 16; i++) { ringCoords.push([i, 2]); ringCoords.push([i, 3]); }
+        // bottom arc
+        for (let i = 5; i <= 16; i++) { ringCoords.push([i, 18]); ringCoords.push([i, 19]); }
+        // left arc
+        for (let i = 5; i <= 16; i++) { ringCoords.push([2, i]); ringCoords.push([3, i]); }
+        // right arc
+        for (let i = 5; i <= 16; i++) { ringCoords.push([18, i]); ringCoords.push([19, i]); }
+        // corners
+        ringCoords.push([4, 3], [3, 4], [4, 4]);
+        ringCoords.push([17, 3], [18, 4], [17, 4]);
+        ringCoords.push([3, 17], [4, 18], [4, 17]);
+        ringCoords.push([18, 17], [17, 18], [17, 17]);
+
+        pxBatch(ctx, bx, by, s, C.steelLight, ringCoords);
+
+        // ring shadow (right and bottom edges)
+        const ringShadow = [];
+        for (let i = 5; i <= 16; i++) { ringShadow.push([19, i]); ringShadow.push([i, 19]); }
+        ringShadow.push([18, 17], [17, 18]);
+        pxBatch(ctx, bx, by, s, C.steelDark, ringShadow);
+
+        // ring panel detail lines
+        pxBatch(ctx, bx, by, s, C.steelGray, [
+          [7, 2], [11, 2], [14, 2],
+          [7, 19], [11, 19], [14, 19],
+          [2, 7], [2, 11], [2, 14],
+          [19, 7], [19, 11], [19, 14],
+        ]);
+
+        // central hub (4x4)
+        pxBatch(ctx, bx, by, s, C.steelGray, [
+          [9, 9], [10, 9], [11, 9], [12, 9],
+          [9, 10], [10, 10], [11, 10], [12, 10],
+          [9, 11], [10, 11], [11, 11], [12, 11],
+          [9, 12], [10, 12], [11, 12], [12, 12],
+        ]);
+        pxBatch(ctx, bx, by, s, C.steelLight, [
+          [9, 9], [10, 9], [9, 10],
+        ]);
+
+        // spokes connecting hub to ring
+        pxBatch(ctx, bx, by, s, C.steelDark, [
+          // top spoke
+          [10, 4], [11, 4], [10, 5], [11, 5], [10, 6], [11, 6], [10, 7], [11, 7], [10, 8], [11, 8],
+          // bottom spoke
+          [10, 13], [11, 13], [10, 14], [11, 14], [10, 15], [11, 15], [10, 16], [11, 16], [10, 17], [11, 17],
+          // left spoke
+          [4, 10], [4, 11], [5, 10], [5, 11], [6, 10], [6, 11], [7, 10], [7, 11], [8, 10], [8, 11],
+          // right spoke
+          [13, 10], [13, 11], [14, 10], [14, 11], [15, 10], [15, 11], [16, 10], [16, 11], [17, 10], [17, 11],
+        ]);
+
+        // massive solar arrays (extending outside ring)
+        // top arrays
+        pxBatch(ctx, bx, by, s, C.energyCyan, [
+          [1, 0], [2, 0], [3, 0], [4, 0],
+          [1, 1], [2, 1], [3, 1], [4, 1],
+          [17, 0], [18, 0], [19, 0], [20, 0],
+          [17, 1], [18, 1], [19, 1], [20, 1],
+        ]);
+        // bottom arrays
+        pxBatch(ctx, bx, by, s, C.energyCyan, [
+          [1, 20], [2, 20], [3, 20], [4, 20],
+          [1, 21], [2, 21], [3, 21], [4, 21],
+          [17, 20], [18, 20], [19, 20], [20, 20],
+          [17, 21], [18, 21], [19, 21], [20, 21],
+        ]);
+        // array connectors
+        pxBatch(ctx, bx, by, s, C.steelDark, [
+          [4, 2], [17, 2], [4, 19], [17, 19],
+        ]);
+
+        // central energy field glow
+        const hubGlow = 0.35 + Math.sin(t * 2) * 0.2;
+        glow(ctx, x, y, 5 * s, C.energyCyan, hubGlow);
+
+        // particle effects (orbiting the ring)
+        const pCount = 8;
+        for (let i = 0; i < pCount; i++) {
+          const angle = (i / pCount) * Math.PI * 2 + t * 0.5;
+          const dist = 9.5 * s;
+          const ppx = x + Math.cos(angle) * dist;
+          const ppy = y + Math.sin(angle) * dist;
+          const pa = 0.3 + Math.sin(t * 3 + i * 1.7) * 0.2;
+          ctx.fillStyle = rgba(C.energyBright, pa);
+          ctx.fillRect(Math.round(ppx), Math.round(ppy), Math.ceil(s * 0.7), Math.ceil(s * 0.7));
+        }
+
+        // blinking lights around ring
+        const blink4a = Math.sin(t * 3) > 0.2 ? 0.85 : 0.1;
+        const blink4b = Math.sin(t * 3 + Math.PI) > 0.2 ? 0.85 : 0.1;
+        pxBatch(ctx, bx, by, s, rgba(C.energyBright, blink4a), [
+          [5, 2], [16, 2], [2, 5], [19, 16],
+        ]);
+        pxBatch(ctx, bx, by, s, rgba(C.threatRed, blink4b), [
+          [5, 19], [16, 19], [2, 16], [19, 5],
+        ]);
+        // solar shimmer
+        const shimmer4 = 0.25 + Math.sin(t * 2.2) * 0.15;
+        pxBatch(ctx, bx, by, s, rgba(C.energyBright, shimmer4), [
+          [1, 0], [20, 0], [1, 21], [20, 21],
+        ]);
+        break;
+      }
+    }
+  }
+
+
+  // ==========================================================================
+  // 4d. DEFENSE GRID RING
+  // ==========================================================================
+  //
+  //  Concentric circles + scanning beam + Death Star at center.
   //  Drawn at (x, y) with given radius as the middle ring.
   //
   function drawDefenseGrid(ctx, x, y, radius, options) {
@@ -414,55 +1076,8 @@ const PixelSprites = (() => {
 
     ctx.restore();
 
-    // -- shield icon at center (pixel art, 13x14) --
-    const ss = Math.max(1.2, radius / 80);  // scale shield relative to grid
-    const sx = x - 6 * ss;
-    const sy = y - 7 * ss;
-
-    // shield body
-    pxBatch(ctx, sx, sy, ss, C.amber, [
-                        [5,0],[6,0],[7,0],
-                   [3,1],[4,1],[5,1],[6,1],[7,1],[8,1],[9,1],
-              [2,2],[3,2],[4,2],[5,2],[6,2],[7,2],[8,2],[9,2],[10,2],
-         [1,3],[2,3],[3,3],[4,3],[5,3],[6,3],[7,3],[8,3],[9,3],[10,3],[11,3],
-         [1,4],[2,4],[3,4],[4,4],[5,4],[6,4],[7,4],[8,4],[9,4],[10,4],[11,4],
-         [1,5],[2,5],[3,5],[4,5],[5,5],[6,5],[7,5],[8,5],[9,5],[10,5],[11,5],
-         [1,6],[2,6],[3,6],[4,6],[5,6],[6,6],[7,6],[8,6],[9,6],[10,6],[11,6],
-              [2,7],[3,7],[4,7],[5,7],[6,7],[7,7],[8,7],[9,7],[10,7],
-              [2,8],[3,8],[4,8],[5,8],[6,8],[7,8],[8,8],[9,8],[10,8],
-                   [3,9],[4,9],[5,9],[6,9],[7,9],[8,9],[9,9],
-                        [4,10],[5,10],[6,10],[7,10],[8,10],
-                             [5,11],[6,11],[7,11],
-                                  [6,12],
-    ]);
-
-    // shield highlight
-    pxBatch(ctx, sx, sy, ss, C.amberLight, [
-      [5,1],[6,1],[7,1],
-      [3,2],[4,2],[5,2],
-      [2,3],[3,3],
-      [1,4],[2,4],
-    ]);
-
-    // shield dark edge
-    pxBatch(ctx, sx, sy, ss, C.darkAmber, [
-      [10,3],[11,3],
-      [10,4],[11,4],
-      [10,5],[11,5],
-      [10,6],[11,6],
-      [9,7],[10,7],
-      [9,8],[10,8],
-      [8,9],[9,9],
-      [7,10],[8,10],
-      [6,11],[7,11],
-      [6,12],
-    ]);
-
-    // shield inner cross
-    pxBatch(ctx, sx, sy, ss, C.darkAmber, [
-      [6,3],[6,4],[6,5],[6,6],[6,7],[6,8],[6,9],[6,10],
-      [3,6],[4,6],[5,6],[6,6],[7,6],[8,6],[9,6],
-    ]);
+    // -- Death Star at center (replaces old shield icon) --
+    drawDeathStar(ctx, x, y, radius * 0.35, { time });
   }
 
 
@@ -1306,6 +1921,9 @@ const PixelSprites = (() => {
 
     // Defense grid
     drawDefenseGrid,
+    drawDeathStar,
+    drawEarth,
+    drawSatellite,
 
     // Defense turret sprites (individual stages)
     drawTurretBase,
