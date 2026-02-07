@@ -62,10 +62,12 @@ streamlit run ui/app.py --server.port 8501 --server.headless true &
 UI_PID=$!
 sleep 2
 
-# Step 7: Start simulator (continuous stream)
+# Step 7: Start embedded simulator via backend API
 echo -e "\n${GREEN}[7/7] Starting live transaction simulator (1 TPS)...${NC}"
-python -m sim.main --tps 1 &
-SIM_PID=$!
+curl -s -X POST http://localhost:8000/simulator/start \
+  -H "Content-Type: application/json" \
+  -d '{"tps": 1.0}' && echo -e "  ${GREEN}Embedded simulator started (1 TPS)${NC}" \
+  || echo -e "  ${YELLOW}Warning: Could not start simulator${NC}"
 
 echo -e "\n=========================================="
 echo -e "${GREEN}Demo is running!${NC}"

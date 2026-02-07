@@ -149,7 +149,7 @@ def main():
     py = sys.executable  # Use same Python interpreter
 
     # Step 1: Init DB
-    print("\n[1/7] Initializing database...")
+    print("\n[1/8] Initializing database...")
     db_path = PROJECT_ROOT / "app.db"
     if db_path.exists():
         try:
@@ -165,19 +165,19 @@ def main():
     run_fg([py, "scripts/init_db.py"], "init_db")
 
     # Step 2: Validate schemas
-    print("\n[2/7] Validating schemas...")
+    print("\n[2/8] Validating schemas...")
     if not run_fg([py, "scripts/validate_schemas.py"], "validate_schemas"):
         print("ERROR: Schema validation failed!")
         sys.exit(1)
 
     # Step 3: Bootstrap model (required for scoring)
-    print("\n[3/7] Bootstrapping ML model...")
+    print("\n[3/8] Bootstrapping ML model...")
     if not run_fg([py, "scripts/bootstrap_model.py", "--force"], "bootstrap_model"):
         print("ERROR: Model bootstrap failed!")
         sys.exit(1)
 
     # Step 4: Start backend
-    print("\n[4/7] Starting backend (FastAPI)...")
+    print("\n[4/8] Starting backend (FastAPI)...")
     backend = run_bg(
         [py, "-m", "uvicorn", "backend.main:app", "--host", "127.0.0.1", "--port", "8000"],
         "backend",
@@ -198,12 +198,28 @@ def main():
     )
     time.sleep(2)
 
-    # Step 7: Start simulator
-    print("\n[7/7] Starting live transaction simulator (1 TPS)...")
-    run_bg(
-        [py, "-m", "sim.main", "--tps", "1"],
-        "simulator",
-    )
+    # Step 7: Run initial pattern mining on seeded data
+    print("\n[7/8] Running initial pattern mining...")
+    try:
+        resp = httpx.post("http://localhost:8000/mine-patterns", timeout=30)
+        if resp.status_code == 200:
+            data = resp.json()
+            print(f"  Found {data.get('patterns_found', 0)} patterns")
+        else:
+            print(f"  WARNING: Mining returned {resp.status_code}")
+    except Exception as e:
+        print(f"  WARNING: Could not run mining: {e}")
+
+    # Step 8: Start embedded simulator via backend API
+    print("\n[8/8] Starting live transaction simulator (1 TPS)...")
+    try:
+        resp = httpx.post("http://localhost:8000/simulator/start", json={"tps": 1.0}, timeout=5)
+        if resp.status_code == 200:
+            print("  Embedded simulator started (1 TPS)")
+        else:
+            print(f"  WARNING: Simulator start returned {resp.status_code}: {resp.text}")
+    except Exception as e:
+        print(f"  WARNING: Could not start simulator: {e}")
 
     print("\n" + "=" * 50)
     print("  Demo is running!")

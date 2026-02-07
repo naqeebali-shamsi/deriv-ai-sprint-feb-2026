@@ -107,22 +107,132 @@ class MetricsOut(BaseModel):
 
 # --- Guardian globals ---
 _guardian_task: asyncio.Task | None = None
+_mining_task: asyncio.Task | None = None
 
 # --- Auto-retrain debounce ---
 import time as _time_mod
 _last_retrain_time: float = 0
 
 
+# --- Periodic pattern mining ---
+async def _periodic_mining(interval: int = 90):
+    """Run pattern mining every `interval` seconds so the UI stays populated."""
+    await asyncio.sleep(30)  # initial delay — let seed data land first
+    while True:
+        try:
+            async with get_db() as db:
+                patterns = await run_mining_job_async(db)
+            for p in patterns:
+                _publish_event({
+                    "type": "pattern",
+                    "name": p.name,
+                    "pattern_type": p.pattern_type,
+                    "confidence": p.confidence,
+                    "timestamp": datetime.utcnow().isoformat(),
+                })
+            if patterns:
+                logger.info("Periodic mining found %d patterns", len(patterns))
+        except Exception:
+            logger.exception("Periodic pattern mining error")
+        await asyncio.sleep(interval)
+
+
+# --- Auto-explain background task ---
+async def _auto_explain_case(
+    case_id: str,
+    txn_id: str,
+    txn_data: dict,
+    risk_score: float,
+    decision: str,
+    features: dict,
+    reasons: list[str],
+    model_version: str,
+):
+    """Generate explanation in background and store it with the case.
+
+    Runs as an asyncio task immediately after case creation so the
+    explanation is ready before the analyst opens the case.
+    """
+    try:
+        # Fetch related patterns
+        related_patterns = []
+        async with get_db() as db:
+            cursor = await db.execute(
+                "SELECT name, pattern_type, confidence, description "
+                "FROM pattern_cards WHERE status = 'active' LIMIT 20"
+            )
+            all_patterns = [
+                {"name": r[0], "pattern_type": r[1], "confidence": r[2], "description": r[3]}
+                for r in await cursor.fetchall()
+            ]
+            sender = txn_data.get("sender_id", "")
+            receiver = txn_data.get("receiver_id", "")
+            related_patterns = [
+                p for p in all_patterns
+                if sender in (p.get("description") or "")
+                or receiver in (p.get("description") or "")
+            ]
+
+        # Generate explanation (runs LLM or template in executor to not block)
+        loop = asyncio.get_running_loop()
+        explanation = await loop.run_in_executor(
+            None,
+            lambda: explain_case(
+                txn=txn_data,
+                risk_score=risk_score,
+                decision=decision,
+                features=features,
+                reasons=reasons,
+                patterns=related_patterns,
+                model_version=model_version,
+            ),
+        )
+
+        # Store explanation in DB
+        explanation_json = json.dumps(explanation)
+        async with get_db() as db:
+            await db.execute(
+                "UPDATE cases SET explanation = ? WHERE case_id = ?",
+                (explanation_json, case_id),
+            )
+            await db.commit()
+
+        # Publish SSE event so UI can show the explanation immediately
+        _publish_event({
+            "type": "case_explained",
+            "case_id": case_id,
+            "txn_id": txn_id,
+            "agent": explanation.get("agent", "unknown"),
+            "summary": explanation.get("summary", "")[:200],
+            "recommendation": explanation.get("recommendation", "")[:200],
+            "timestamp": datetime.utcnow().isoformat(),
+        })
+
+        logger.info(
+            "Auto-explained case %s via %s",
+            case_id[:8], explanation.get("agent", "?"),
+        )
+    except Exception:
+        logger.exception("Auto-explain failed for case %s", case_id[:8])
+
+
 # --- Lifespan ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db_tables()
-    global _guardian_task
+    global _guardian_task, _mining_task
     if get_settings().GUARDIAN_ENABLED:
         _guardian_task = asyncio.create_task(
             run_guardian_loop(_publish_event, _do_retrain)
         )
+    _mining_task = asyncio.create_task(_periodic_mining())
     yield
+    if _mining_task:
+        _mining_task.cancel()
+        try:
+            await asyncio.wait_for(_mining_task, timeout=5.0)
+        except (asyncio.CancelledError, asyncio.TimeoutError):
+            pass
     if _guardian_task:
         _guardian_task.cancel()
         try:
@@ -769,7 +879,24 @@ async def explain_case_stream(case_id: str):
         "amount": txn_row[0], "currency": txn_row[1], "sender_id": txn_row[2],
         "receiver_id": txn_row[3], "txn_type": txn_row[4], "channel": txn_row[5],
     }
-    prompt = _build_llm_prompt(txn, risk_score, decision, features, reasons, [], model_version)
+
+    # Fetch related patterns (same logic as non-streaming endpoint)
+    related_patterns = []
+    async with get_db() as db:
+        cursor = await db.execute(
+            "SELECT name, pattern_type, confidence, description FROM pattern_cards WHERE status = 'active' LIMIT 20"
+        )
+        all_patterns = [
+            {"name": r[0], "pattern_type": r[1], "confidence": r[2], "description": r[3]}
+            for r in await cursor.fetchall()
+        ]
+        related_patterns = [
+            p for p in all_patterns
+            if txn["sender_id"] in (p.get("description") or "")
+            or txn["receiver_id"] in (p.get("description") or "")
+        ]
+
+    prompt = _build_llm_prompt(txn, risk_score, decision, features, reasons, related_patterns, model_version)
 
     async def generate():
         # Use asyncio.Queue as bridge between sync Ollama iterator and async generator
@@ -1205,7 +1332,7 @@ _sim_config: dict = {
         "structuring": True,
         "velocity_abuse": True,
         "wash_trading": True,
-        "spoofing": True,
+        "unauthorized_transfer": True,
         "bonus_abuse": True,
     },
 }

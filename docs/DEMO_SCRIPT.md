@@ -174,7 +174,7 @@ Open two browser tabs:
 | Problem | Fix |
 |---------|-----|
 | Backend crashed | `python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000` |
-| No transactions showing | Check simulator: `python -m sim.main --tps 1` |
+| No transactions showing | Check embedded simulator: `curl http://localhost:8000/simulator/status` — if stopped, start it: `curl -X POST http://localhost:8000/simulator/start -H "Content-Type: application/json" -d '{"tps": 1.0}'` |
 | Ollama not responding | Explanations will use template fallback — still works, mention "we also have an LLM mode" |
 | UI frozen | Refresh browser. Streamlit auto-reconnects. |
 | Empty database | `python scripts/seed_demo.py --count 200` |

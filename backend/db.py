@@ -62,7 +62,8 @@ async def init_db_tables():
                 assigned_to TEXT,
                 priority TEXT DEFAULT 'medium',
                 risk_score REAL,
-                matched_patterns TEXT
+                matched_patterns TEXT,
+                explanation TEXT
             );
 
             CREATE TABLE IF NOT EXISTS analyst_labels (

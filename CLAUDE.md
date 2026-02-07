@@ -106,7 +106,7 @@ Add Researcher only when external intel is required (libraries, best practices, 
 - `install`: `pip install -r requirements.txt`
 
 ### Run
-- `run-sim`: `python -m sim.main`
+- `run-sim`: Embedded in backend (auto-starts via UI or `POST /simulator/start`)
 - `run-backend`: `uvicorn backend.main:app --reload`
 - `run-ui`: `streamlit run ui/app.py`
 - `demo`: `python scripts/demo.py` (full end-to-end loop)

@@ -1598,8 +1598,8 @@ const PixelSprites = (() => {
         break;
       }
 
-      // --- SPOOFING: theatre mask ---
-      case 'spoofing': {
+      // --- UNAUTHORIZED TRANSFER: theatre mask ---
+      case 'unauthorized_transfer': {
         // mask body
         pxBatch(ctx, bx, by, s, C.petalPurple, [
               [3,0],[4,0],[5,0],[6,0],[7,0],[8,0],

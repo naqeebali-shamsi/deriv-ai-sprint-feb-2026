@@ -27,17 +27,17 @@ LLM_MULTI_AGENT_ROLES = [r.strip() for r in _settings.LLM_MULTI_AGENT_ROLES if r
 # Pre-computed responses for recognized fraud patterns to ensure instant response times.
 CACHED_PATTERN_RESPONSES = {
     "wash_trading_hero": {
-        "summary": "Step ID: 74\nCRITICAL ALERT: Circular wash trading ring detected involving 3 accounts moving $12,500.",
+        "summary": "CRITICAL: Circular wash trading ring detected -- 3 accounts moving $12,500 in a closed loop with zero net economic value.",
         "risk_factors": [
-            "Pattern Match: 'Circular Flow Ring (3 members)' detected with 95% confidence.",
-            "High Velocity: Sender moved funds <2 minutes after receiving them.",
-            "Zero Net Economic Value: Funds round-tripped back to origin source (A->B->C->A).",
-            "Structuring: Amounts slightly varied ($4,950, $4,980) to evade round-number detection."
+            "Pattern Match: 'Circular Flow Ring (3 members)' detected with 95% confidence via graph analysis (Tarjan SCC).",
+            "High Velocity: Sender forwarded funds <2 minutes after receiving them -- consistent with automated layering.",
+            "Zero Net Economic Value: Funds round-tripped back to origin (A->B->C->A), no legitimate trade purpose.",
+            "Structuring: Amounts varied slightly ($4,950, $4,980) to evade round-number detection thresholds."
         ],
-        "behavioral_analysis": "The account exhibits classic 'layering' behavior. Funds are received and immediately forwarded to a known associate within the ring. The velocity (funds held for <5 mins) indicates a coordinated mule network rather than legitimate trading.",
-        "pattern_context": "DIRECT MATCH: Circular Flow Ring (3 members) (confidence: 95%). This transaction is Edge #2 in a 3-hop cycle (Node A -> Node B -> Node C -> Node A).",
-        "recommendation": "BLOCK IMMEDIATE. Freeze all 3 accounts in the ring (IDs ending in _A1, _A2, _A3). File SAR for suspected money laundering (layering stage).",
-        "confidence_note": "Confidence: 99.9% (Graph-verified cycle). No additional data needed.",
+        "behavioral_analysis": "Classic 'layering' behavior: funds received and immediately forwarded to a known associate within the ring. The velocity (funds held <5 mins) combined with the closed-loop topology indicates a coordinated mule network, not legitimate trading activity.",
+        "pattern_context": "DIRECT MATCH: Circular Flow Ring (3 members) (confidence: 95%). This transaction is Edge #2 in a 3-hop cycle (A -> B -> C -> A). All 3 accounts exhibit synchronized activity windows.",
+        "recommendation": "BLOCK IMMEDIATE. Freeze all 3 accounts in the ring. File SAR for suspected money laundering (layering stage). Cross-reference account opening dates for coordinated onboarding.",
+        "confidence_note": "Confidence: HIGH (graph-verified cycle with velocity confirmation). Additional data that would strengthen: account age, KYC verification status, historical transaction volume.",
         "agent": "fraud-agent-v1 (llm)"
     }
 }
@@ -52,86 +52,116 @@ def _build_llm_prompt(
     patterns: list[dict],
     model_version: str,
 ) -> str:
-    """Build the prompt for the LLM."""
+    """Build the prompt for the LLM.
+
+    Optimized for small models (8B quantized):
+    - Direct instructions, no identity/role fluff
+    - Explicit anti-hallucination grounding ("use ONLY data below")
+    - Tight output format with clear section delimiters
+    - Human-readable feature approximations (not just 0-1 normalized)
+    - Removed CONFIDENCE section (ungroundable by LLM, computed deterministically)
+    - Target output: ~200-250 tokens for fast CPU inference
+    """
     amount = txn.get("amount", 0)
     sender = txn.get("sender_id", "unknown")
     receiver = txn.get("receiver_id", "unknown")
     txn_type = txn.get("txn_type", "unknown")
     channel = txn.get("channel", "unknown")
 
-    # Format key features
+    # Format features with approximate raw values for interpretability.
+    # Small models understand "sent 8 txns in 1 hour" better than "0.40/1.0".
     feat_lines = []
     vel_1h = features.get("sender_txn_count_1h", 0)
     vel_24h = features.get("sender_txn_count_24h", 0)
     amt_sum = features.get("sender_amount_sum_1h", 0)
     unique_recv = features.get("sender_unique_receivers_24h", 0)
     time_since = features.get("time_since_last_txn_minutes", 0)
+    device_reuse = features.get("device_reuse_count_24h", 0)
+    ip_reuse = features.get("ip_reuse_count_24h", 0)
+    ip_geo_risk = features.get("ip_country_risk", 0)
+    first_counterparty = features.get("first_time_counterparty", 0)
 
-    if vel_1h > 0.1:
-        feat_lines.append(f"- Sender velocity (1h): {vel_1h:.2f}/1.0 (high = suspicious)")
-    if vel_24h > 0.1:
-        feat_lines.append(f"- Sender activity (24h): {vel_24h:.2f}/1.0")
-    if amt_sum > 0.1:
-        feat_lines.append(f"- Cumulative amount (1h): {amt_sum:.2f}/1.0")
-    if unique_recv > 0.1:
-        feat_lines.append(f"- Unique receivers (24h): {unique_recv:.2f}/1.0 (high = fund distribution)")
+    if vel_1h > 0.05:
+        feat_lines.append(f"- Sender: ~{round(vel_1h * 20)} txns in last hour")
+    if vel_24h > 0.05:
+        feat_lines.append(f"- Sender: ~{round(vel_24h * 100)} txns in last 24h")
+    if amt_sum > 0.05:
+        feat_lines.append(f"- Sender moved ~${round(amt_sum * 50000):,} total in last hour")
+    if unique_recv > 0.05:
+        feat_lines.append(f"- Sender sent to ~{round(unique_recv * 20)} different receivers in 24h")
     if time_since > 0.3:
-        feat_lines.append(f"- Rapid succession: {time_since:.2f}/1.0 (high = very fast)")
+        approx_min = max(1, round((1.0 - time_since) * 60))
+        feat_lines.append(f"- Only ~{approx_min} min since sender's previous txn")
+    if device_reuse > 0.1:
+        feat_lines.append(f"- Device shared with {round(device_reuse * 5)} other accounts")
+    if ip_reuse > 0.1:
+        feat_lines.append(f"- IP shared with {round(ip_reuse * 10)} other accounts")
+    if ip_geo_risk > 0.5:
+        feat_lines.append("- High-risk IP geography")
+    if first_counterparty:
+        feat_lines.append("- First-ever transaction between this sender and receiver")
     if features.get("channel_api", 0):
-        feat_lines.append("- Channel: API (automated, higher risk)")
+        feat_lines.append("- API channel (automated, not manual)")
     if features.get("hour_risky", 0):
-        feat_lines.append("- Timing: High-risk hours (00:00-05:00 UTC)")
+        feat_lines.append("- Sent during 00:00-05:00 UTC (high-risk hours)")
+    if features.get("sender_in_ring", 0) > 0:
+        feat_lines.append("- Sender is in a circular fund flow ring")
+    if features.get("sender_is_hub", 0) > 0:
+        feat_lines.append("- Sender is a high-connectivity hub account")
+    if features.get("sender_in_velocity_cluster", 0) > 0:
+        feat_lines.append("- Sender is in a velocity spike cluster")
 
-    features_str = "\n".join(feat_lines) if feat_lines else "- No notable velocity/behavioral signals"
+    features_str = "\n".join(feat_lines) if feat_lines else "- No notable signals"
 
-    # Format reasons
-    reasons_str = "\n".join(f"- {r}" for r in reasons) if reasons else "- No specific reasons flagged"
+    # Format reasons from scorer
+    reasons_str = "\n".join(f"- {r}" for r in reasons) if reasons else "- None"
 
-    # Format patterns
+    # Format matched patterns
     if patterns:
         pattern_lines = []
         for p in patterns[:3]:
             name = p.get("name", "Unknown")
             conf = p.get("confidence", 0)
-            desc = p.get("description", "")[:150]
-            pattern_lines.append(f"- {name} (confidence: {conf:.0%}): {desc}")
+            desc = p.get("description", "")[:120]
+            pattern_lines.append(f"- {name} ({conf:.0%} confidence): {desc}")
         patterns_str = "\n".join(pattern_lines)
     else:
-        patterns_str = "- No matched patterns"
+        patterns_str = "- None"
 
-    return f"""You are an autonomous fraud detection agent for Deriv, a derivatives trading platform.
-Analyze this flagged transaction and provide a structured case report.
+    severity = (
+        "CRITICAL" if risk_score >= 0.9 else
+        "HIGH" if risk_score >= 0.8 else
+        "ELEVATED" if risk_score >= 0.6 else
+        "MODERATE"
+    )
 
-TRANSACTION:
-- Amount: ${amount:,.2f} ({txn_type})
-- Sender: {sender}
-- Receiver: {receiver}
-- Channel: {channel}
-- Risk Score: {risk_score:.4f} (Decision: {decision.upper()})
-- Scored by: {model_version}
+    return f"""Analyze this flagged transaction. Use ONLY the data below. Do NOT invent details.
 
-BEHAVIORAL FEATURES:
+TRANSACTION: ${amount:,.2f} {txn_type} via {channel}
+Sender: {sender} | Receiver: {receiver}
+Risk: {risk_score:.3f} ({severity}) | Decision: {decision.upper()} | Model: {model_version}
+
+SIGNALS:
 {features_str}
 
-RISK SIGNALS:
+FLAGGED REASONS:
 {reasons_str}
 
-MATCHED FRAUD PATTERNS:
+MATCHED PATTERNS:
 {patterns_str}
 
-Provide your analysis in EXACTLY this format (keep each section concise, 1-3 sentences):
+Write your analysis in EXACTLY this format. Keep each section to 1-2 sentences. Start directly with SUMMARY:
 
-SUMMARY: [One sentence describing the transaction and why it was flagged]
+SUMMARY: What happened and why it was flagged.
 
-RISK FACTORS: [Bullet list of the key risk factors, explain WHY each matters for fraud detection]
+RISK FACTORS:
+- List each risk factor from SIGNALS above and why it matters for fraud.
 
-BEHAVIORAL ANALYSIS: [Analysis of the sender's behavior pattern - is it consistent with known fraud typologies like wash trading, structuring, velocity abuse, spoofing, or bonus abuse?]
+BEHAVIORAL ANALYSIS: Which fraud typology fits (wash trading, structuring, velocity abuse, unauthorized transfer, bonus abuse)? If signals are too weak, state "no clear typology match."
 
-PATTERN INTELLIGENCE: [If patterns matched, explain the connection. If not, note this.]
+PATTERN CONTEXT: Explain matched pattern connection, or state "No pattern matches" if none listed above.
 
-RECOMMENDATION: [Clear action recommendation for the analyst - BLOCK, REVIEW, or APPROVE with specific next steps]
-
-CONFIDENCE: [Your confidence level in this assessment and what additional data would improve it]"""
+RECOMMENDATION: BLOCK, REVIEW, or APPROVE with 1-2 specific next steps for the analyst."""
 
 
 def _call_ollama(prompt: str) -> str | None:
@@ -144,8 +174,10 @@ def _call_ollama(prompt: str) -> str | None:
                 "prompt": prompt,
                 "stream": False,
                 "options": {
-                    "temperature": 0.3,  # Low temp for consistent analysis
-                    "num_predict": 500,  # Cap response length
+                    "temperature": 0.2,  # Low temp for consistent, grounded output
+                    "num_predict": 350,  # ~300 token target + margin
+                    "top_p": 0.9,        # Nucleus sampling to reduce tail randomness
+                    "repeat_penalty": 1.1,  # Penalize repetition (common in 8B models)
                 },
             },
             timeout=OLLAMA_TIMEOUT,
@@ -159,32 +191,46 @@ def _call_ollama(prompt: str) -> str | None:
 
 
 def _multi_agent_explain(prompt: str) -> str | None:
-    """Run multiple LLM roles and synthesize a single report."""
+    """Run multiple LLM roles and synthesize a single report.
+
+    Each specialist gets a focused sub-prompt (not the full prompt repeated),
+    reducing token waste and improving quality on 8B models.
+    The synthesis step merges specialist outputs into the standard format.
+
+    WARNING: This is 3-4x slower than single-call mode (~75-100s on CPU).
+    Only enable for high-value cases or when demo time permits.
+    """
+    # Each specialist gets a DIFFERENT, FOCUSED prompt.
+    # This avoids the anti-pattern of prepending a role to the same long prompt.
     role_specs = {
         "behavioral": (
             "Behavioral Analyst",
-            "Focus on velocity, amount patterns, and account behavior."
+            "Analyze ONLY the velocity, timing, and amount signals. "
+            "Which fraud typology fits? (wash trading, structuring, velocity abuse, "
+            "unauthorized transfer, bonus abuse). "
+            "Respond in 2-3 sentences. Use only the data provided.",
         ),
         "network": (
             "Network/Pattern Analyst",
-            "Focus on graph patterns, rings, hubs, and shared entities."
+            "Analyze ONLY the matched patterns and graph signals (rings, hubs, clusters). "
+            "How do the patterns connect to this transaction? "
+            "Respond in 2-3 sentences. If no patterns matched, say so. "
+            "Use only the data provided.",
         ),
         "compliance": (
             "Compliance Risk Officer",
-            "Focus on regulatory risk, suspicious activity indicators, and actions."
+            "Based on the risk score and signals, recommend BLOCK, REVIEW, or APPROVE. "
+            "List 1-2 specific investigation steps. "
+            "Respond in 2-3 sentences. Use only the data provided.",
         ),
     }
 
     reports = []
     for key in LLM_MULTI_AGENT_ROLES:
         role_name, role_focus = role_specs.get(
-            key, ("Fraud Analyst", "Focus on fraud risk signals and evidence.")
+            key, ("Fraud Analyst", "Analyze the risk signals. Respond in 2-3 sentences.")
         )
-        role_prompt = (
-            f"You are the {role_name}. {role_focus}\n\n"
-            "Produce your analysis in EXACTLY the required format.\n\n"
-            f"{prompt}"
-        )
+        role_prompt = f"{role_name}: {role_focus}\n\n{prompt}"
         response = _call_ollama(role_prompt)
         if response:
             reports.append((role_name, response))
@@ -195,14 +241,20 @@ def _multi_agent_explain(prompt: str) -> str | None:
     if len(reports) == 1:
         return reports[0][1]
 
-    synth_inputs = "\n\n".join(
-        f"[{name} Report]\n{report}" for name, report in reports
+    # Synthesis: merge specialist outputs into the standard 5-section format
+    synth_inputs = "\n".join(
+        f"[{name}]: {report.strip()[:300]}" for name, report in reports
     )
     synth_prompt = (
-        "You are the Lead Fraud Analyst. Combine the agent reports into a single, "
-        "coherent assessment. Resolve conflicts, keep the strongest evidence, and "
-        "return EXACTLY the required format.\n\n"
-        f"{prompt}\n\nAGENT REPORTS:\n{synth_inputs}"
+        "Combine the specialist reports below into one assessment. "
+        "Use ONLY facts from the reports. Do NOT add new information.\n\n"
+        f"SPECIALIST REPORTS:\n{synth_inputs}\n\n"
+        "Write the combined assessment in EXACTLY this format:\n\n"
+        "SUMMARY: One sentence.\n\n"
+        "RISK FACTORS:\n- Bullet list from the reports.\n\n"
+        "BEHAVIORAL ANALYSIS: Which typology and why.\n\n"
+        "PATTERN CONTEXT: Pattern findings or 'No pattern matches.'\n\n"
+        "RECOMMENDATION: BLOCK, REVIEW, or APPROVE with next steps."
     )
     return _call_ollama(synth_prompt)
 
@@ -222,8 +274,10 @@ def _call_ollama_stream(prompt: str):
                 "prompt": prompt,
                 "stream": True,
                 "options": {
-                    "temperature": 0.3,
-                    "num_predict": 500,
+                    "temperature": 0.2,
+                    "num_predict": 350,
+                    "top_p": 0.9,
+                    "repeat_penalty": 1.1,
                 },
             },
             timeout=OLLAMA_TIMEOUT,
@@ -387,6 +441,9 @@ def explain_case(
     # 0. Check cached pattern responses for known high-confidence scenarios
     meta = txn.get("metadata") or {}
     hero_key = meta.get("demo_hero")
+    # Handle boolean True → default to first cached key (wash_trading_hero)
+    if hero_key is True:
+        hero_key = next(iter(CACHED_PATTERN_RESPONSES), None)
     if hero_key and hero_key in CACHED_PATTERN_RESPONSES:
         timeline.record("pattern_match", f"Known scenario detected: {hero_key}")
         golden = CACHED_PATTERN_RESPONSES[hero_key]

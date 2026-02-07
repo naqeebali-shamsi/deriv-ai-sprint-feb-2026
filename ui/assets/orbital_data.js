@@ -663,9 +663,9 @@ class OrbitalDataLayer {
 
     // Scenario presets
     const PRESETS = {
-      normal: { tps: 2.0, fraud_rate: 0.10, fraud_types: { wash_trading: true, spoofing: true, bonus_abuse: false, structuring: false, velocity_abuse: true } },
-      mixed:  { tps: 3.0, fraud_rate: 0.35, fraud_types: { wash_trading: true, spoofing: true, bonus_abuse: true,  structuring: true,  velocity_abuse: true } },
-      storm:  { tps: 5.0, fraud_rate: 0.55, fraud_types: { wash_trading: true, spoofing: true, bonus_abuse: true,  structuring: true,  velocity_abuse: true } },
+      normal: { tps: 2.0, fraud_rate: 0.10, fraud_types: { wash_trading: true, unauthorized_transfer: true, bonus_abuse: false, structuring: false, velocity_abuse: true } },
+      mixed:  { tps: 3.0, fraud_rate: 0.35, fraud_types: { wash_trading: true, unauthorized_transfer: true, bonus_abuse: true,  structuring: true,  velocity_abuse: true } },
+      storm:  { tps: 5.0, fraud_rate: 0.55, fraud_types: { wash_trading: true, unauthorized_transfer: true, bonus_abuse: true,  structuring: true,  velocity_abuse: true } },
     };
 
     document.querySelectorAll('[data-scenario]').forEach(btn => {

@@ -369,6 +369,12 @@ async def run_simulator(tps: float = 1.0, duration: int | None = None):
 
 def main():
     """Entry point."""
+    import warnings
+    warnings.warn(
+        "sim.main CLI is deprecated. Use the embedded simulator via POST /simulator/start instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     import argparse
     parser = argparse.ArgumentParser(description="Transaction Simulator")
     parser.add_argument("--tps", type=float, default=1.0, help="Transactions per second")
