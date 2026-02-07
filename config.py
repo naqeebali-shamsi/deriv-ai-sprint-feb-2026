@@ -4,8 +4,8 @@ Uses pydantic-settings for validation and .env file support.
 All hardcoded values across the project should reference this module.
 """
 import os
-from pathlib import Path
 from functools import lru_cache
+from pathlib import Path
 
 # Project root directory
 PROJECT_ROOT = Path(__file__).parent

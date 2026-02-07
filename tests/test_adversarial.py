@@ -5,8 +5,7 @@ Reports detection rates on both standard and adversarial test sets.
 """
 import re
 
-import pytest
-
+from risk.scorer import score_transaction
 from sim.adversarial import (
     generate_bonus_abuse_evasion,
     generate_legit_looking_fraud,
@@ -15,8 +14,6 @@ from sim.adversarial import (
     generate_stealth_wash_trade,
     generate_subtle_structuring,
 )
-from risk.scorer import score_transaction
-
 
 # Named fraud pool patterns from sim/main.py that adversarial txns must NOT use
 _NAMED_POOL_PATTERN = re.compile(

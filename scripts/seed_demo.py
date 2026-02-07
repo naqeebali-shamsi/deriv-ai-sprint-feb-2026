@@ -11,13 +11,12 @@ Usage:
 import argparse
 import random
 import sys
-import time
 
 import httpx
 
 # Import the simulator generators directly
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
-from sim.main import generate_transaction, FRAUD_RATE
+from sim.main import FRAUD_RATE, generate_transaction
 
 
 def seed(api_url: str = "http://localhost:8000", count: int = 200):
@@ -102,7 +101,7 @@ def seed(api_url: str = "http://localhost:8000", count: int = 200):
         print(f"  [ERROR] Mining failed: {e}")
 
     # Step 4: Send a second smaller batch (post-training) to show ML model in action
-    print(f"\nSending 50 more transactions with trained ML model...")
+    print("\nSending 50 more transactions with trained ML model...")
     post_train_stats = {"flagged": 0, "total": 0}
     for i in range(50):
         is_fraud = random.random() < FRAUD_RATE
@@ -123,8 +122,8 @@ def seed(api_url: str = "http://localhost:8000", count: int = 200):
     print("\n" + "=" * 60)
     print("Demo seed complete! System is ready.")
     print(f"  Total transactions: {stats['total'] + post_train_stats['total']}")
-    print(f"  Model: trained with ground truth")
-    print(f"  Patterns: mined from transaction graph")
+    print("  Model: trained with ground truth")
+    print("  Patterns: mined from transaction graph")
     print("=" * 60)
 
     client.close()

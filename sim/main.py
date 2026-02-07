@@ -58,27 +58,27 @@ def _lognormal_amount(mean: float, sigma: float, min_val: float = 1.0, max_val: 
 def _generate_enterprise_metadata(txn_type: str, channel: str) -> dict:
     """Generate realistic enterprise-grade metadata (ISO 20022 / Fintech style)."""
     meta = {}
-    
+
     # 1. Geo / Network Telemetry
     country = random.choices(["US", "GB", "DE", "FR", "SG", "NG", "BR"], weights=[40, 20, 10, 5, 10, 10, 5])[0]
     meta["ip_country"] = country
     meta["user_agent"] = fake.user_agent()
     meta["session_id"] = f"sess_{uuid4().hex[:12]}"
     meta["login_hash"] = uuid4().hex[:8]
-    
+
     # 2. Payment Rails (Mocking ISO 20022 fields)
     if txn_type in ("transfer", "payment"):
         meta["remittance_info"] = fake.sentence(nb_words=3)
         meta["instruction_id"] = f"instr_{uuid4().hex[:16]}"
         meta["end_to_end_id"] = f"e2e_{uuid4().hex[:16]}"
         meta["clearing_system"] = random.choice(["ACH", "SEPA", "SWIFT", "RTP"])
-    
+
     # 3. Card Data (if relevant)
     if txn_type == "deposit":
         meta["card_bin"] = str(random.randint(400000, 499999))
         meta["card_last4"] = str(random.randint(1000, 9999))
         meta["3ds_version"] = "2.1.0"
-        
+
     return meta
 
 
@@ -266,13 +266,13 @@ _FRAUD_GENERATORS = {
 
 def generate_hero_transaction() -> dict:
     """Generate the 'Hero' transaction for the demo golden path.
-    
+
     This transaction triggers the pre-canned 'perfect' LLM response.
     """
     amount = 12500.00
     sender = "ring_leader_A1"
     receiver = "mule_B2"
-    
+
     return {
         "amount": amount,
         "currency": "USD",
@@ -353,7 +353,7 @@ async def run_simulator(tps: float = 1.0, duration: int | None = None):
             else:
                 is_fraud = random.random() < FRAUD_RATE
                 txn = generate_transaction(is_fraud=is_fraud)
-            
+
             await send_transaction(client, txn)
 
             counts["total"] += 1

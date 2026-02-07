@@ -9,9 +9,10 @@ Architecture:
 - Output: Structured explanation dict (same format regardless of backend)
 - Streaming: Supports token-by-token streaming for live UI feedback
 """
-import httpx
 import time
 from datetime import datetime
+
+import httpx
 
 from config import get_settings
 
@@ -400,7 +401,7 @@ def _flush_section(sections: dict, key: str, lines: list[str]):
                 factors.append(clean)
         sections[key] = factors if factors else sections[key]
     else:
-        text = " ".join(l for l in lines if l).strip()
+        text = " ".join(line for line in lines if line).strip()
         if text:
             sections[key] = text
 

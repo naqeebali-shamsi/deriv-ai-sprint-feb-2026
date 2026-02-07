@@ -3,32 +3,36 @@ import asyncio
 import json
 import logging
 import math
+import time as _time_mod
 import traceback
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
-
-from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, Field, field_validator
-from typing import Literal
 
 import httpx
 import numpy as np
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, StreamingResponse
+from pydantic import BaseModel, Field, field_validator
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from config import get_settings
 from backend.db import get_db, init_db_tables
-from risk.scorer import score_transaction, THRESHOLDS, reload_model
-from risk.trainer import (
-    compute_training_features, train_model, FEATURE_NAMES,
-    get_model_version, MIN_SAMPLES_PER_CLASS,
-)
-from patterns.miner import run_mining_job_async
+from config import get_settings
 from patterns.features import compute_pattern_features
-from risk.explainer import explain_case, _build_llm_prompt, _call_ollama_stream
-from risk.guardian import run_guardian_loop, _retrain_lock
+from patterns.miner import run_mining_job_async
+from risk.explainer import _build_llm_prompt, _call_ollama_stream, explain_case
+from risk.guardian import _retrain_lock, run_guardian_loop
+from risk.scorer import THRESHOLDS, reload_model, score_transaction
+from risk.trainer import (
+    FEATURE_NAMES,
+    MIN_SAMPLES_PER_CLASS,
+    compute_training_features,
+    get_model_version,
+    train_model,
+)
 
 # --- Logging ---
 settings = get_settings()
@@ -110,7 +114,6 @@ _guardian_task: asyncio.Task | None = None
 _mining_task: asyncio.Task | None = None
 
 # --- Auto-retrain debounce ---
-import time as _time_mod
 _last_retrain_time: float = 0
 
 
@@ -260,9 +263,6 @@ app.add_middleware(
 
 
 # --- Global Exception Handler ---
-from fastapi.exceptions import RequestValidationError
-from starlette.exceptions import HTTPException as StarletteHTTPException
-
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     # Let FastAPI handle validation and HTTP errors natively (422, 404, etc.)
@@ -988,7 +988,7 @@ async def get_metrics():
         fp = metrics_row[1] or 0
         fn = metrics_row[2] or 0
         # tn = metrics_row[3] or 0  # available if needed
-        total_labels = metrics_row[4]
+        # total_labels = metrics_row[4]  # available if needed
 
         flagged_as_fraud = tp + fp
         true_fraud = tp + fn
@@ -1374,9 +1374,12 @@ class SimulatorConfig(BaseModel):
 async def _run_embedded_simulator():
     """Run simulator in-process, publishing events to SSE stream."""
     import random
+
     from sim.main import (
-        generate_legit_transaction, generate_hero_transaction,
-        _FRAUD_GENERATORS, FRAUD_TYPES,
+        _FRAUD_GENERATORS,
+        FRAUD_TYPES,
+        generate_hero_transaction,
+        generate_legit_transaction,
     )
 
     logger.info(f"Embedded simulator started: {_sim_config['tps']} TPS, {_sim_config['fraud_rate']*100:.0f}% fraud")

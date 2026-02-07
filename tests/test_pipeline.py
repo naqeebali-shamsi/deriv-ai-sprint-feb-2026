@@ -1,7 +1,8 @@
 """Pipeline smoke tests."""
+from pathlib import Path
+
 import numpy as np
 import pytest
-from pathlib import Path
 
 
 class TestPipelineSmoke:
@@ -73,7 +74,7 @@ class TestTransactionGeneration:
 
     def test_generate_specific_fraud_types(self):
         """Should generate each fraud typology."""
-        from sim.main import generate_transaction, FRAUD_TYPES
+        from sim.main import FRAUD_TYPES, generate_transaction
         for fraud_type in FRAUD_TYPES:
             txn = generate_transaction(is_fraud=True, fraud_type=fraud_type)
             assert txn["is_fraud_ground_truth"] is True
@@ -127,7 +128,7 @@ class TestRiskScoringPipeline:
 
     def test_scorer_returns_result(self):
         """score_transaction should return a RiskResult with real values."""
-        from risk.scorer import score_transaction, RiskResult
+        from risk.scorer import RiskResult, score_transaction
         txn = {
             "txn_id": "test-123",
             "amount": 15000,
@@ -254,7 +255,8 @@ class TestRiskScoringPipeline:
     @pytest.mark.asyncio
     async def test_api_returns_risk_score(self):
         """POST /transactions should return a real risk_score (not None)."""
-        from httpx import AsyncClient, ASGITransport
+        from httpx import ASGITransport, AsyncClient
+
         from backend.main import app
 
         transport = ASGITransport(app=app)
@@ -280,7 +282,8 @@ class TestRiskScoringPipeline:
         We send multiple rapid transactions from the same sender to trigger
         velocity features, then verify that flagged txns produce cases.
         """
-        from httpx import AsyncClient, ASGITransport
+        from httpx import ASGITransport, AsyncClient
+
         from backend.main import app
 
         transport = ASGITransport(app=app)
@@ -302,7 +305,7 @@ class TestRiskScoringPipeline:
             # Check that at least one case was created (any txn from this sender)
             cases_resp = await client.get("/cases")
             assert cases_resp.status_code == 200
-            cases = cases_resp.json()
+            cases_resp.json()  # verify deserializable
             # Pipeline should have processed all 5 txns successfully.
             # With a trained model, cases may or may not be created
             # depending on the model's learned thresholds.
@@ -313,7 +316,8 @@ class TestRiskScoringPipeline:
     @pytest.mark.asyncio
     async def test_metrics_show_flagged(self):
         """Metrics should reflect flagged transactions."""
-        from httpx import AsyncClient, ASGITransport
+        from httpx import ASGITransport, AsyncClient
+
         from backend.main import app
 
         transport = ASGITransport(app=app)
@@ -336,7 +340,8 @@ class TestRiskScoringPipeline:
     @pytest.mark.asyncio
     async def test_suggested_cases_endpoint(self):
         """GET /cases/suggested should return cases sorted by uncertainty."""
-        from httpx import AsyncClient, ASGITransport
+        from httpx import ASGITransport, AsyncClient
+
         from backend.main import app
 
         transport = ASGITransport(app=app)

@@ -12,8 +12,7 @@ import asyncio
 import json
 import logging
 from datetime import datetime
-from pathlib import Path
-from typing import Any, Callable, Awaitable
+from typing import Any, Awaitable, Callable
 from uuid import uuid4
 
 import httpx
@@ -87,8 +86,6 @@ REASONING: [1-2 sentences explaining why]
 
 async def _gather_context(db) -> dict[str, Any]:
     """Query DB for guardian decision context."""
-    now = datetime.utcnow().isoformat()
-
     # Last retrain timestamp
     cursor = await db.execute(
         """SELECT MAX(timestamp) FROM metric_snapshots"""

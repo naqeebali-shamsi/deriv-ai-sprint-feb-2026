@@ -1,7 +1,8 @@
 """Database utilities for async SQLite."""
-import aiosqlite
 from contextlib import asynccontextmanager
 from pathlib import Path
+
+import aiosqlite
 
 from config import get_settings
 

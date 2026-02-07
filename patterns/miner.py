@@ -10,7 +10,7 @@ import hashlib
 import json
 import math
 from collections import defaultdict
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from datetime import datetime
 from uuid import uuid4
 

@@ -6,11 +6,12 @@ Usage: python scripts/demo.py
 """
 import atexit
 import os
-import signal
 import subprocess
 import sys
 import time
 from pathlib import Path
+
+import httpx
 
 PROJECT_ROOT = Path(__file__).parent.parent
 os.chdir(PROJECT_ROOT)
@@ -32,7 +33,7 @@ def cleanup():
                 p.kill()
             except Exception:
                 pass
-    
+
     for f in log_files:
         try:
             f.close()
@@ -50,7 +51,7 @@ def kill_stale_processes():
         # On Windows, kill by process name matching our known services
         for pattern in ["uvicorn", "streamlit"]:
             try:
-                result = subprocess.run(
+                subprocess.run(
                     ["taskkill", "/F", "/IM", "python.exe", "/FI", f"WINDOWTITLE eq *{pattern}*"],
                     capture_output=True, text=True, timeout=5,
                 )
@@ -59,7 +60,7 @@ def kill_stale_processes():
         # Also use wmic/powershell to find python processes with uvicorn/streamlit in cmdline
         for pattern in ["uvicorn", "streamlit"]:
             try:
-                result = subprocess.run(
+                subprocess.run(
                     ["powershell", "-Command",
                      f"Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" "
                      f"| Where-Object {{ $_.CommandLine -like '*{pattern}*' }} "
@@ -95,11 +96,11 @@ def run_bg(cmd: list[str], label: str) -> subprocess.Popen:
     """Start a background process with logging."""
     log_path = PROJECT_ROOT / "logs" / f"{label}.log"
     log_path.parent.mkdir(exist_ok=True)
-    
+
     # Open file (will be closed in cleanup)
     f = open(log_path, "w", encoding="utf-8")
     log_files.append(f)
-    
+
     proc = subprocess.Popen(
         cmd,
         stdout=f,

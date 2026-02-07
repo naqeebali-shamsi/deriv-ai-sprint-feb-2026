@@ -223,7 +223,7 @@ def _get_ml_model():
         with _model_lock:
             if _model_state["model"] is None:
                 try:
-                    from risk.trainer import load_model, get_model_version
+                    from risk.trainer import get_model_version, load_model
                     model = load_model()
                     if model is not None:
                         _model_state["model"] = model
@@ -235,7 +235,7 @@ def _get_ml_model():
 
 def reload_model():
     """Force reload the ML model (call after retraining). Thread-safe atomic swap."""
-    from risk.trainer import load_model, get_model_version
+    from risk.trainer import get_model_version, load_model
     new_model = load_model()
     new_version = get_model_version() if new_model else "missing"
     with _model_lock:

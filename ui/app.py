@@ -6,9 +6,8 @@ aesthetic, real-time SSE data stream, and full analyst workflow.
 Fallback: Classic tabbed dashboard for direct API interaction, case
 management, model retraining, and pattern discovery.
 """
-import json
+import sys
 import time
-from datetime import datetime
 from pathlib import Path
 
 import altair as alt
@@ -17,7 +16,6 @@ import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 
-import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from config import get_settings
 
@@ -286,7 +284,7 @@ def render_cases():
     with col_action:
         case_filter = st.selectbox("Filter", ["open", "all", "closed"], index=0, label_visibility="collapsed")
     status_param = None if case_filter == "all" else case_filter
-    endpoint = f"/cases?limit=20" + (f"&status={status_param}" if status_param else "")
+    endpoint = "/cases?limit=20" + (f"&status={status_param}" if status_param else "")
     cases = fetch_api(endpoint)
     if not cases:
         st.success("No open cases. All caught up!")

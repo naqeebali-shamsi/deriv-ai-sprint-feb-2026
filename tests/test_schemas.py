@@ -1,11 +1,11 @@
 """Tests for JSON schema validation."""
 import json
+from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
-from datetime import datetime
 
 import pytest
-from jsonschema import validate, ValidationError, Draft7Validator
+from jsonschema import Draft7Validator, ValidationError, validate
 
 SCHEMAS_DIR = Path(__file__).parent.parent / "schemas"
 

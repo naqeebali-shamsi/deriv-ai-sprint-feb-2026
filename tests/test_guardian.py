@@ -2,19 +2,15 @@
 
 Tests pure functions only — no LLM, no DB, no async.
 """
-import tempfile
-from pathlib import Path
 
-import pytest
 
 from risk.guardian import (
     _deterministic_decision,
     _deterministic_eval,
-    _parse_guardian_response,
     _parse_eval_response,
+    _parse_guardian_response,
     _rollback_model,
 )
-
 
 # =============================================================================
 # Deterministic retrain decision tests

@@ -11,15 +11,13 @@ from pathlib import Path
 
 import numpy as np
 
-
 # Add project root to path so we can import config/risk/sim
 sys.path.append(str(Path(__file__).parent.parent))
 
 from config import get_settings
-
 from risk.scorer import compute_features
 from risk.trainer import FEATURE_NAMES, MODEL_DIR, train_model
-from sim.main import generate_transaction, FRAUD_RATE
+from sim.main import FRAUD_RATE, generate_transaction
 
 
 def _clear_existing_models() -> None:

@@ -16,9 +16,9 @@ from pathlib import Path
 
 import joblib
 import numpy as np
-from xgboost import XGBClassifier
-from sklearn.metrics import precision_score, recall_score, f1_score, roc_auc_score
+from sklearn.metrics import f1_score, precision_score, recall_score, roc_auc_score
 from sklearn.model_selection import StratifiedKFold, cross_val_score
+from xgboost import XGBClassifier
 
 MODEL_DIR = Path(__file__).parent.parent / "models"
 MODEL_DIR.mkdir(exist_ok=True)

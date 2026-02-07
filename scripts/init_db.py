@@ -12,7 +12,7 @@ from pathlib import Path
 # Ensure project root is on the path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from backend.db import init_db_tables, DB_PATH
+from backend.db import DB_PATH, init_db_tables
 
 
 def main() -> None:
