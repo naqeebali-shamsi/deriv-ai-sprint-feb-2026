@@ -587,8 +587,8 @@ class OrbitalDataLayer {
     const card = document.querySelector('#alert-card');
     if (!card) return;
 
-    this._setText('#alert-pod', this._esc((data.txn_id || caseId).slice(0, 12)));
-    this._setText('#alert-pattern', this._esc(data.summary || 'AI Analysis'));
+    this._setText('#alert-pod', (data.txn_id || caseId).slice(0, 12));
+    this._setText('#alert-pattern', data.summary || 'AI Analysis');
 
     const score = data.risk_score || data.confidence;
     this._setText('#alert-risk', score != null ? `${(score * 100).toFixed(0)}%` : '--');
@@ -600,9 +600,9 @@ class OrbitalDataLayer {
     if (data.risk_factors && data.risk_factors.length) {
       detail += (detail ? ' | ' : '') + 'Factors: ' + data.risk_factors.slice(0, 3).join(', ');
     }
-    this._setText('#alert-detail', this._esc(detail || 'No additional details'));
+    this._setText('#alert-detail', detail || 'No additional details');
 
-    this._setText('#alert-conf', this._esc(data.agent || 'fraud-agent'));
+    this._setText('#alert-conf', data.agent || 'fraud-agent');
 
     card.style.display = 'block';
 
