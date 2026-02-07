@@ -134,8 +134,16 @@ def render_orbital_fortress():
     </style>
     """, unsafe_allow_html=True)
 
+    st.markdown(
+        '<div style="text-align:center; padding:4px 0; font-size:0.78em; '
+        'color:#94a3b8; background:#0f172a; border-bottom:1px solid #1e293b;">'
+        'Click <b style="color:#ffb94f;">&gt;</b> on the top-left to open the sidebar '
+        '&mdash; switch views, reset demo, toggle refresh'
+        '</div>',
+        unsafe_allow_html=True,
+    )
     html = build_orbital_html(API_URL)
-    components.html(html, height=870, scrolling=False)
+    components.html(html, height=850, scrolling=False)
 
 
 # =============================================================================
