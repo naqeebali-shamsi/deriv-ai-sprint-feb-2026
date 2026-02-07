@@ -97,7 +97,21 @@ async def init_db_tables():
                 metrics TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS agent_decisions (
+                decision_id TEXT PRIMARY KEY,
+                timestamp TEXT NOT NULL,
+                decision_type TEXT NOT NULL,
+                reasoning TEXT,
+                context TEXT NOT NULL,
+                outcome TEXT,
+                model_version_before TEXT,
+                model_version_after TEXT,
+                source TEXT DEFAULT 'guardian'
+            );
+
             -- Indexes for velocity queries (critical for scoring performance)
+            CREATE INDEX IF NOT EXISTS idx_agent_decisions_ts
+                ON agent_decisions(timestamp);
             CREATE INDEX IF NOT EXISTS idx_txn_sender_ts
                 ON transactions(sender_id, timestamp);
             CREATE INDEX IF NOT EXISTS idx_txn_receiver

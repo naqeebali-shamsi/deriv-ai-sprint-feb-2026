@@ -57,6 +57,17 @@ class Settings:
             "MODELS_DIR", str(PROJECT_ROOT / "models")
         )
 
+        # Guardian Agent
+        self.GUARDIAN_ENABLED: bool = os.getenv(
+            "GUARDIAN_ENABLED", "true"
+        ).lower() in ("1", "true", "yes", "on")
+        self.GUARDIAN_CHECK_INTERVAL: int = int(
+            os.getenv("GUARDIAN_CHECK_INTERVAL", "30")
+        )
+        self.GUARDIAN_MIN_LABELS: int = int(
+            os.getenv("GUARDIAN_MIN_LABELS", "5")
+        )
+
     @property
     def backend_url(self) -> str:
         return f"http://{self.BACKEND_HOST}:{self.BACKEND_PORT}"

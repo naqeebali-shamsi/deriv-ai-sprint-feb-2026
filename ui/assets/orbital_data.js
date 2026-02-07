@@ -252,6 +252,37 @@ class OrbitalDataLayer {
         this._addFeedLine('scanner', `Simulator configured: ${ev.config?.tps} TPS, ${((ev.config?.fraud_rate || 0) * 100).toFixed(0)}% fraud`);
         break;
 
+      case 'agent_decision': {
+        const dt = ev.decision_type;
+        if (dt === 'retrain_skipped') break;  // SILENT — no feed noise
+
+        const reasoning = (ev.reasoning || '').slice(0, 80);
+
+        if (dt === 'retrain_triggered') {
+          this._addFeedLine('primary', `Guardian: RETRAIN TRIGGERED — ${reasoning}`);
+          this._addLearningLine('primary', 'Guardian initiated retrain');
+        } else if (dt === 'model_kept') {
+          // Brain pulse ONLY on model_kept (not on triggered)
+          if (ev.new_metrics) {
+            Object.assign(this.state.metrics, {
+              precision: ev.new_metrics.precision ?? this.state.metrics.precision,
+              recall: ev.new_metrics.recall ?? this.state.metrics.recall,
+              f1: ev.new_metrics.f1 ?? this.state.metrics.f1,
+            });
+            if (ev.new_version) this.state.metrics.model_version = ev.new_version;
+            if (this.engine?.triggerBrainPulse) this.engine.triggerBrainPulse();
+          }
+          this._addFeedLine('secondary', `Guardian: MODEL KEPT — ${ev.new_version}, F1: ${(ev.new_metrics?.f1 ?? 0).toFixed(2)}`);
+        } else if (dt === 'model_rolled_back') {
+          if (ev.old_version) this.state.metrics.model_version = ev.old_version;
+          this._addFeedLine('danger', `Guardian: ROLLBACK — ${reasoning}`);
+          this._addLearningLine('danger', `Defense reverted to ${ev.old_version}`);
+        }
+
+        this._emit('agent_decision', ev);
+        break;
+      }
+
       case 'heartbeat':
       case 'connected':
         break;

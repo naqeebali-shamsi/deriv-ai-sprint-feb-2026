@@ -1,4 +1,5 @@
 """FastAPI backend entry point."""
+import asyncio
 import json
 import logging
 import math
@@ -27,6 +28,7 @@ from risk.trainer import (
 from patterns.miner import run_mining_job_async
 from patterns.features import compute_pattern_features
 from risk.explainer import explain_case, _build_llm_prompt, _call_ollama_stream
+from risk.guardian import run_guardian_loop, _retrain_lock
 
 # --- Logging ---
 settings = get_settings()
@@ -103,11 +105,26 @@ class MetricsOut(BaseModel):
     model_version: str = "missing"
 
 
+# --- Guardian globals ---
+_guardian_task: asyncio.Task | None = None
+
+
 # --- Lifespan ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db_tables()
+    global _guardian_task
+    if get_settings().GUARDIAN_ENABLED:
+        _guardian_task = asyncio.create_task(
+            run_guardian_loop(_publish_event, _do_retrain)
+        )
     yield
+    if _guardian_task:
+        _guardian_task.cancel()
+        try:
+            await asyncio.wait_for(_guardian_task, timeout=5.0)
+        except (asyncio.CancelledError, asyncio.TimeoutError):
+            pass
 
 
 # --- App ---
@@ -387,6 +404,32 @@ async def create_transaction(txn: TransactionIn):
             )
 
         await db.commit()
+
+    # Publish SSE event so Orbital Greenhouse UI receives it
+    _publish_event({
+        "type": "transaction",
+        "txn_id": txn_id,
+        "amount": txn.amount,
+        "currency": txn.currency,
+        "sender_id": txn.sender_id,
+        "receiver_id": txn.receiver_id,
+        "txn_type": txn.txn_type,
+        "risk_score": risk_result.score,
+        "decision": risk_result.decision,
+        "is_fraud_ground_truth": txn.is_fraud_ground_truth,
+        "fraud_type": (txn.metadata or {}).get("fraud_type"),
+        "timestamp": timestamp,
+    })
+
+    if flagged:
+        _publish_event({
+            "type": "case_created",
+            "case_id": case_id,
+            "txn_id": txn_id,
+            "risk_score": risk_result.score,
+            "decision": risk_result.decision,
+            "timestamp": timestamp,
+        })
 
     return TransactionOut(
         txn_id=txn_id,
@@ -753,16 +796,18 @@ async def get_metrics():
     )
 
 
-# --- Retrain ---
-@app.post("/retrain")
-async def retrain_model():
-    """Retrain the ML model using analyst-labeled data.
+# --- Shared Retrain Helper ---
+async def _do_retrain(write_snapshot: bool = True) -> dict:
+    """Shared retrain logic used by both /retrain endpoint and guardian.
 
-    Collects labeled transactions, computes features, trains a
-    XGBClassifier (XGBoost), and updates the scoring model.
+    Args:
+        write_snapshot: If True, write metric snapshot and publish SSE event.
+            Guardian passes False (writes snapshot only after eval KEEP).
+
+    Returns:
+        Training result dict.
     """
     async with get_db() as db:
-        # Get all labeled transactions with their features
         cursor = await db.execute(
             """SELECT t.txn_id, t.amount, t.txn_type, t.channel, t.sender_id,
                       t.timestamp, al.decision,
@@ -780,14 +825,12 @@ async def retrain_model():
             "error": f"Need at least {MIN_SAMPLES_PER_CLASS * 2} labeled samples, have {len(rows)}",
         }
 
-    # Build feature matrix and labels
     X_list = []
     y_list = []
 
     for row in rows:
         txn_id, amount, txn_type, channel, sender_id, ts, decision, features_json = row
 
-        # Use stored features if available, otherwise recompute
         if features_json:
             try:
                 stored_features = json.loads(features_json)
@@ -805,14 +848,11 @@ async def retrain_model():
     X = np.array(X_list)
     y = np.array(y_list)
 
-    # Train
     result = train_model(X, y)
 
-    if result.get("trained"):
-        # Reload model in scorer
+    if result.get("trained") and write_snapshot:
         reload_model()
 
-        # Store metric snapshot
         async with get_db() as db:
             snapshot_id = str(uuid4())
             await db.execute(
@@ -831,6 +871,19 @@ async def retrain_model():
         })
 
     return result
+
+
+# --- Retrain ---
+@app.post("/retrain")
+async def retrain_model():
+    """Retrain the ML model using analyst-labeled data.
+
+    Collects labeled transactions, computes features, trains a
+    XGBClassifier (XGBoost), and updates the scoring model.
+    Uses shared lock to prevent concurrent retrains with guardian.
+    """
+    async with _retrain_lock:
+        return await _do_retrain(write_snapshot=True)
 
 
 # Also expose ground-truth labeled transactions for training (from simulator)
@@ -1025,8 +1078,6 @@ async def get_transaction(txn_id: str):
 
 
 # --- SSE Event Stream (for Orbital Greenhouse UI) ---
-import asyncio
-
 # In-memory event bus for real-time UI updates
 _event_subscribers: list[asyncio.Queue] = []
 
@@ -1068,7 +1119,10 @@ async def stream_events():
         except asyncio.CancelledError:
             pass
         finally:
-            _event_subscribers.remove(queue)
+            try:
+                _event_subscribers.remove(queue)
+            except ValueError:
+                pass
 
     return StreamingResponse(generate(), media_type="text/event-stream")
 
@@ -1270,3 +1324,86 @@ async def configure_simulator(config: SimulatorConfig):
     })
 
     return {"status": "configured", **_sim_config}
+
+
+# --- Guardian Agent Endpoints ---
+@app.get("/guardian/status")
+async def guardian_status():
+    """Get current guardian agent status."""
+    from risk.guardian import _consecutive_failures as guardian_failures
+
+    return {
+        "running": _guardian_task is not None and not _guardian_task.done(),
+        "enabled": get_settings().GUARDIAN_ENABLED,
+        "check_interval": get_settings().GUARDIAN_CHECK_INTERVAL,
+        "consecutive_failures": guardian_failures,
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+
+
+@app.get("/guardian/decisions")
+async def list_guardian_decisions(limit: int = Query(default=20, ge=1, le=100)):
+    """List recent guardian agent decisions."""
+    async with get_db() as db:
+        cursor = await db.execute(
+            """SELECT decision_id, timestamp, decision_type, reasoning,
+                      context, outcome, model_version_before,
+                      model_version_after, source
+               FROM agent_decisions
+               ORDER BY timestamp DESC LIMIT ?""",
+            (limit,),
+        )
+        rows = await cursor.fetchall()
+
+    results = []
+    for r in rows:
+        ctx = {}
+        if r[4]:
+            try:
+                ctx = json.loads(r[4])
+            except (json.JSONDecodeError, TypeError):
+                ctx = {"raw": r[4]}
+        results.append({
+            "decision_id": r[0],
+            "timestamp": r[1],
+            "decision_type": r[2],
+            "reasoning": r[3],
+            "context": ctx,
+            "outcome": r[5],
+            "model_version_before": r[6],
+            "model_version_after": r[7],
+            "source": r[8],
+        })
+    return results
+
+
+@app.post("/guardian/start")
+async def start_guardian():
+    """Manually start the guardian agent."""
+    global _guardian_task
+
+    if _guardian_task and not _guardian_task.done():
+        return {"status": "already_running"}
+
+    _guardian_task = asyncio.create_task(
+        run_guardian_loop(_publish_event, _do_retrain)
+    )
+    return {"status": "started", "timestamp": datetime.utcnow().isoformat()}
+
+
+@app.post("/guardian/stop")
+async def stop_guardian():
+    """Manually stop the guardian agent."""
+    global _guardian_task
+
+    if not _guardian_task or _guardian_task.done():
+        return {"status": "not_running"}
+
+    _guardian_task.cancel()
+    try:
+        await asyncio.wait_for(_guardian_task, timeout=5.0)
+    except (asyncio.CancelledError, asyncio.TimeoutError):
+        pass
+    _guardian_task = None
+
+    return {"status": "stopped", "timestamp": datetime.utcnow().isoformat()}
