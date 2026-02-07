@@ -66,11 +66,20 @@ FEATURE_NAMES = [
 MIN_SAMPLES_PER_CLASS = 10  # Minimum labeled samples per class to train
 
 
+def _version_sort_key(path: Path) -> tuple[int, ...]:
+    """Parse vX.Y.Z from filename into tuple for numeric sorting."""
+    stem = path.stem.replace("model_", "").lstrip("v")
+    try:
+        return tuple(int(p) for p in stem.split("."))
+    except (ValueError, TypeError):
+        return (0, 0, 0)
+
+
 def get_latest_model_path() -> Path | None:
-    """Find the latest trained model file."""
+    """Find the latest trained model file (by semantic version, not string sort)."""
     if not MODEL_DIR.exists():
         return None
-    models = sorted(MODEL_DIR.glob("model_v*.joblib"))
+    models = sorted(MODEL_DIR.glob("model_v*.joblib"), key=_version_sort_key)
     return models[-1] if models else None
 
 
