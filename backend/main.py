@@ -223,6 +223,32 @@ async def _auto_explain_case(
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db_tables()
+
+    # Seed initial metric snapshot from bootstrap model if none exist
+    try:
+        async with get_db() as db:
+            cursor = await db.execute("SELECT COUNT(*) FROM metric_snapshots")
+            count = (await cursor.fetchone())[0]
+            if count == 0:
+                # Check if a bootstrap model metrics file exists
+                from pathlib import Path
+                models_dir = Path(get_settings().MODELS_DIR)
+                metrics_files = sorted(models_dir.glob("metrics_v*.json"))
+                if metrics_files:
+                    latest_metrics_file = metrics_files[-1]
+                    metrics_data = json.loads(latest_metrics_file.read_text())
+                    version = get_model_version()
+                    await db.execute(
+                        """INSERT INTO metric_snapshots (snapshot_id, timestamp, model_version, metrics)
+                           VALUES (?, ?, ?, ?)""",
+                        (str(uuid4()), datetime.utcnow().isoformat(), version,
+                         json.dumps(metrics_data)),
+                    )
+                    await db.commit()
+                    logger.info("Seeded initial metric snapshot from bootstrap model (%s)", version)
+    except Exception:
+        logger.debug("Could not seed initial metric snapshot (non-critical)")
+
     global _guardian_task, _mining_task
     if get_settings().GUARDIAN_ENABLED:
         _guardian_task = asyncio.create_task(
@@ -763,7 +789,7 @@ async def explain_case_endpoint(case_id: str):
         if cached_explanation:
             try:
                 explanation = json.loads(cached_explanation)
-                return {"case_id": case_id, "txn_id": txn_id, **explanation}
+                return {"case_id": case_id, "txn_id": txn_id, "risk_score": case_risk_score, **explanation}
             except (json.JSONDecodeError, TypeError):
                 pass
 
@@ -848,6 +874,7 @@ async def explain_case_endpoint(case_id: str):
     return {
         "case_id": case_id,
         "txn_id": txn_id,
+        "risk_score": risk_score,
         **explanation,
     }
 

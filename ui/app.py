@@ -352,7 +352,8 @@ def render_patterns():
             c1, c2 = st.columns([4, 1])
             with c1:
                 st.markdown(f"**[{type_icon}] {p['name']}**")
-                st.caption(p.get("description", "No description")[:200])
+                _desc = p.get("description", "No description")[:200].replace("$", "\\$")
+                st.caption(_desc)
             with c2:
                 st.metric("Confidence", f"{confidence:.0%}")
             st.progress(confidence)
@@ -475,11 +476,16 @@ def main():
         view = st.radio("View", ["Orbital Fortress", "Classic Dashboard"],
                         index=0, label_visibility="collapsed")
         st.divider()
-        st.markdown(f"**Backend:** `{API_URL}`")
+        # Show friendly status (hide Docker internal hostname from users)
+        _backend_ok = False
         try:
             resp = httpx.get(f"{API_URL}/health", timeout=2)
-            st.success("Backend connected") if resp.status_code == 200 else st.error("Backend error")
+            _backend_ok = resp.status_code == 200
         except Exception:
+            _backend_ok = False
+        if _backend_ok:
+            st.success("Backend connected")
+        else:
             st.error("Backend offline")
         st.divider()
         if view == "Classic Dashboard":

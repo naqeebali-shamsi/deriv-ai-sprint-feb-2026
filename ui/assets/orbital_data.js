@@ -533,7 +533,8 @@ class OrbitalDataLayer {
       console.warn('[OrbitalData] hydrateState: patterns failed', e);
     }
 
-    // Trigger a DOM refresh with all hydrated data
+    // Force immediate DOM rebuild (don't wait for next rAF tick)
+    this._updateDOM();
     this._markDomDirty();
     console.log('[OrbitalData] State hydrated:', {
       cases: this.state.openCases.size,
@@ -582,18 +583,22 @@ class OrbitalDataLayer {
     // --- Left panel metrics ---
     this._setText('#metric-tps', `${this._computeTPS().toFixed(1)} TPS`);
 
+    // Show "--" when no labels exist (precision/recall are null)
+    const hasLabels = m.precision != null && m.precision !== undefined;
+
     // False positive rate: flagged_not_fraud / total_flagged (approx from metrics)
-    const fpr = m.precision != null ? ((1 - m.precision) * 100) : 0;
-    this._setText('#metric-fpr', `${fpr.toFixed(1)}%`);
-    this._setBar('#bar-fpr', fpr);
+    const fpr = hasLabels ? ((1 - m.precision) * 100) : 0;
+    this._setText('#metric-fpr', hasLabels ? `${fpr.toFixed(1)}%` : '--');
+    this._setBar('#bar-fpr', hasLabels ? fpr : 0);
 
-    const prec = m.precision != null ? m.precision * 100 : 0;
-    this._setText('#metric-prec', `${prec.toFixed(0)}%`);
-    this._setBar('#bar-prec', prec);
+    const prec = hasLabels ? m.precision * 100 : 0;
+    this._setText('#metric-prec', hasLabels ? `${prec.toFixed(0)}%` : '--');
+    this._setBar('#bar-prec', hasLabels ? prec : 0);
 
-    const rec = m.recall != null ? m.recall * 100 : 0;
-    this._setText('#metric-recall', `${rec.toFixed(0)}%`);
-    this._setBar('#bar-recall', rec);
+    const hasRecall = m.recall != null && m.recall !== undefined;
+    const rec = hasRecall ? m.recall * 100 : 0;
+    this._setText('#metric-recall', hasRecall ? `${rec.toFixed(0)}%` : '--');
+    this._setBar('#bar-recall', hasRecall ? rec : 0);
 
     // --- Right panel: Inspection Queue ---
     this._rebuildQueue();
@@ -627,6 +632,12 @@ class OrbitalDataLayer {
     if (!container) return;
 
     const items = [...this.state.openCases.entries()].slice(0, 5);
+
+    // Change detection: only rebuild if queue content actually changed
+    const newKey = items.map(([id, c]) => `${id}:${c.riskScore}`).join('|');
+    if (this._lastQueueKey === newKey) return;
+    this._lastQueueKey = newKey;
+
     container.innerHTML = '';
 
     for (const [caseId, c] of items) {
@@ -713,7 +724,16 @@ class OrbitalDataLayer {
     const container = document.querySelector('#pattern-list');
     if (!container) return;
 
-    const items = this.state.patterns.slice(0, 8);
+    const items = this.state.patterns.slice(0, 15);
+
+    if (items.length === 0) {
+      // Show fallback only if not already showing it
+      if (!container.querySelector('.pattern-empty')) {
+        container.innerHTML = '<div class="pattern-empty text-xs text-white/30 p-2">No patterns discovered yet</div>';
+      }
+      return;
+    }
+
     container.innerHTML = '';
 
     const icons = {
