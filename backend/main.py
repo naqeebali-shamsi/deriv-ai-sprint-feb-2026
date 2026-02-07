@@ -1713,3 +1713,132 @@ async def stop_guardian():
     _guardian_task = None
 
     return {"status": "stopped", "timestamp": datetime.utcnow().isoformat()}
+
+
+# --- Demo Reset Endpoint ---
+@app.post("/demo/reset")
+async def demo_reset():
+    """Reset DB + model to bootstrap state for demo preparation.
+
+    Steps: stop simulator → stop guardian → wipe DB → re-init tables →
+    clear models → re-bootstrap → reload scorer → return.
+    """
+    global _sim_task, _guardian_task
+    steps = []
+
+    # 1. Stop simulator if running
+    if _sim_config["running"]:
+        _sim_config["running"] = False
+        if _sim_task:
+            _sim_task.cancel()
+            try:
+                await _sim_task
+            except asyncio.CancelledError:
+                pass
+            _sim_task = None
+        steps.append("simulator_stopped")
+
+    # 2. Stop guardian if running
+    if _guardian_task and not _guardian_task.done():
+        _guardian_task.cancel()
+        try:
+            await asyncio.wait_for(_guardian_task, timeout=5.0)
+        except (asyncio.CancelledError, asyncio.TimeoutError):
+            pass
+        _guardian_task = None
+        steps.append("guardian_stopped")
+
+    # 3. Wipe all tables
+    async with get_db() as db:
+        for table in [
+            "transactions", "risk_results", "cases", "analyst_labels",
+            "pattern_cards", "metric_snapshots", "agent_decisions",
+        ]:
+            await db.execute(f"DELETE FROM {table}")  # noqa: S608
+        # Reset model_state to defaults
+        await db.execute(
+            "UPDATE model_state SET threshold=0.5, model_version='v1.0.0', "
+            "last_trained_at=NULL, training_samples=0, "
+            "updated_at=CURRENT_TIMESTAMP WHERE id=1"
+        )
+        await db.commit()
+    steps.append("db_wiped")
+
+    # 4. Re-init tables (idempotent, ensures schema is current)
+    await init_db_tables()
+    steps.append("tables_initialized")
+
+    # 5. Clear existing models and re-bootstrap
+    from risk.trainer import MODEL_DIR
+    for path in MODEL_DIR.glob("model_v*.joblib"):
+        path.unlink(missing_ok=True)
+    for path in MODEL_DIR.glob("metrics_v*.json"):
+        path.unlink(missing_ok=True)
+    steps.append("models_cleared")
+
+    # 6. Bootstrap fresh model
+    loop = asyncio.get_running_loop()
+    bootstrap_result = await loop.run_in_executor(None, _run_bootstrap)
+    steps.append(f"bootstrap_{bootstrap_result}")
+
+    # 7. Reload scorer
+    reload_model()
+    new_version = get_model_version()
+    steps.append(f"scorer_reloaded_{new_version}")
+
+    # 8. Seed initial metric snapshot
+    try:
+        from pathlib import Path as _Path
+        metrics_files = sorted(MODEL_DIR.glob("metrics_v*.json"))
+        if metrics_files:
+            metrics_data = json.loads(metrics_files[-1].read_text())
+            async with get_db() as db:
+                await db.execute(
+                    """INSERT INTO metric_snapshots
+                       (snapshot_id, timestamp, model_version, metrics)
+                       VALUES (?, ?, ?, ?)""",
+                    (str(uuid4()), datetime.utcnow().isoformat(),
+                     new_version, json.dumps(metrics_data)),
+                )
+                await db.commit()
+            steps.append("metrics_seeded")
+    except Exception as e:
+        steps.append(f"metrics_seed_error: {e}")
+
+    logger.info("Demo reset complete: %s", steps)
+    return {
+        "status": "reset_complete",
+        "model_version": new_version,
+        "steps": steps,
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+
+
+def _run_bootstrap() -> str:
+    """Run bootstrap_model synchronously (for executor)."""
+    try:
+        import random
+        import numpy as np
+        from risk.scorer import compute_features
+        from risk.trainer import FEATURE_NAMES, train_model
+        from sim.main import FRAUD_RATE, generate_transaction
+        from scripts.bootstrap_model import _inject_velocity_context
+
+        random.seed(42)
+        samples, labels = [], []
+        for _ in range(400):
+            is_fraud = random.random() < FRAUD_RATE
+            txn = generate_transaction(is_fraud=is_fraud)
+            txn = _inject_velocity_context(txn, is_fraud)
+            features = compute_features(txn)
+            samples.append([features.get(name, 0.0) for name in FEATURE_NAMES])
+            labels.append(1 if is_fraud else 0)
+
+        X = np.array(samples)
+        y = np.array(labels)
+        result = train_model(X, y)
+        if result.get("trained"):
+            return f"ok_{result['version']}"
+        return f"failed_{result.get('error', 'unknown')}"
+    except Exception as e:
+        return f"error_{e}"
