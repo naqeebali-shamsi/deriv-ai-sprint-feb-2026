@@ -11,6 +11,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+import altair as alt
 import httpx
 import pandas as pd
 import streamlit as st
@@ -410,18 +411,28 @@ def render_metrics_trend():
             for s in snapshots]
     df = pd.DataFrame(rows)
     if not df.empty:
-        st.line_chart(df.set_index("Version")[["Precision", "Recall", "F1", "AUC-ROC"]], height=250)
+        melted = df.melt(id_vars="Version", var_name="Metric", value_name="Value")
+        line_chart = alt.Chart(melted).mark_line(point=True).encode(
+            x=alt.X("Version:N", sort=df["Version"].tolist()),
+            y=alt.Y("Value:Q", scale=alt.Scale(domain=[0, 1])),
+            color="Metric:N",
+        ).properties(height=250)
+        st.altair_chart(line_chart, use_container_width=True)
     latest = snapshots[-1] if snapshots else {}
     importance = latest.get("feature_importance", {})
     if importance:
         st.markdown("**Top Feature Importances**")
-        # Filter out NaN/Inf/zero values to avoid Vega-Lite extent warnings
+        # Filter out NaN/Inf/zero values
         clean = {k: v for k, v in importance.items()
                  if isinstance(v, (int, float)) and v > 0 and v == v and abs(v) != float("inf")}
         if clean:
             imp_df = pd.DataFrame(sorted(clean.items(), key=lambda x: -x[1])[:8],
                                   columns=["Feature", "Importance"])
-            st.bar_chart(imp_df.set_index("Feature"), height=200)
+            bar_chart = alt.Chart(imp_df).mark_bar().encode(
+                x=alt.X("Importance:Q", scale=alt.Scale(domain=[0, max(imp_df["Importance"]) * 1.1])),
+                y=alt.Y("Feature:N", sort="-x"),
+            ).properties(height=200)
+            st.altair_chart(bar_chart, use_container_width=True)
 
 
 def _label_case(case_id: str, decision: str):
