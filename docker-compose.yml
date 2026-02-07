@@ -10,7 +10,7 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - CORS_ORIGINS=*
       - OLLAMA_URL=${OLLAMA_URL:-http://ollama:11434}
-      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.1:8b}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.2:3b}
     volumes:
       - app-data:/app/data
       - app-models:/app/models
@@ -29,7 +29,7 @@ services:
     volumes:
       - ollama-data:/root/.ollama
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:11434/api/tags || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:11434/api/tags || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -44,7 +44,7 @@ services:
     environment:
       - OLLAMA_HOST=http://ollama:11434
     entrypoint: >
-      sh -lc "ollama pull ${OLLAMA_MODEL:-llama3.1:8b}"
+      sh -lc "ollama pull ${OLLAMA_MODEL:-llama3.2:3b}"
     profiles:
       - setup
 

@@ -308,7 +308,17 @@ def _parse_eval_response(text: str) -> tuple[str, str]:
 
 
 def _call_guardian_llm(prompt: str) -> str | None:
-    """Call Ollama for guardian decisions."""
+    """Call Ollama for guardian decisions.
+
+    Uses same circuit-breaker + fast connect timeout as explainer.py
+    to prevent blocking the event loop when Ollama is unreachable.
+    """
+    from risk.explainer import _ollama_available, _mark_ollama_down
+
+    if not _ollama_available():
+        logger.debug("Guardian LLM skipped — circuit breaker open")
+        return None
+
     settings = get_settings()
     try:
         resp = httpx.post(
@@ -319,12 +329,20 @@ def _call_guardian_llm(prompt: str) -> str | None:
                 "stream": False,
                 "options": {"temperature": 0.2, "num_predict": 200},
             },
-            timeout=settings.OLLAMA_TIMEOUT,
+            timeout=httpx.Timeout(
+                connect=3.0,
+                read=settings.OLLAMA_TIMEOUT,
+                write=5.0,
+                pool=5.0,
+            ),
         )
         if resp.status_code == 200:
             return resp.json().get("response", "")
+    except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout) as e:
+        _mark_ollama_down()
+        logger.warning(f"Guardian LLM unreachable, circuit breaker tripped: {e}")
     except Exception as e:
-        logger.debug(f"Guardian LLM call failed: {e}")
+        logger.warning(f"Guardian LLM call failed: {e}")
     return None
 
 
@@ -435,18 +453,26 @@ async def _guardian_tick(
 
     # --- Step 1: Decide whether to retrain ---
     source = "deterministic"
-    llm_text = _call_guardian_llm(
-        GUARDIAN_PROMPT.format(
-            labels_since=ctx["labels_since"],
-            total_labels=ctx["total_labels"],
-            txns_since_retrain=ctx["txns_since_retrain"],
-            model_version=ctx["model_version"],
-            current_f1=ctx["current_f1"] or "N/A",
-            current_precision=ctx["current_precision"] or "N/A",
-            drift=ctx["drift"],
-            minutes_since_retrain=ctx["minutes_since_retrain"],
-        )
+    prompt = GUARDIAN_PROMPT.format(
+        labels_since=ctx["labels_since"],
+        total_labels=ctx["total_labels"],
+        txns_since_retrain=ctx["txns_since_retrain"],
+        model_version=ctx["model_version"],
+        current_f1=ctx["current_f1"] or "N/A",
+        current_precision=ctx["current_precision"] or "N/A",
+        drift=ctx["drift"],
+        minutes_since_retrain=ctx["minutes_since_retrain"],
     )
+    # Run synchronous Ollama call off the event loop to prevent blocking
+    loop = asyncio.get_running_loop()
+    try:
+        llm_text = await asyncio.wait_for(
+            loop.run_in_executor(None, _call_guardian_llm, prompt),
+            timeout=15.0,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("Guardian retrain-decision LLM call timed out")
+        llm_text = None
 
     if llm_text:
         decision, reasoning, confidence = _parse_guardian_response(llm_text)
@@ -511,18 +537,24 @@ async def _guardian_tick(
 
     # --- Step 4: Evaluate new model ---
     eval_source = "deterministic"
-    eval_llm_text = _call_guardian_llm(
-        EVAL_PROMPT.format(
-            old_version=old_version,
-            old_precision=old_metrics.get("precision") or "N/A",
-            old_recall=old_metrics.get("recall") or "N/A",
-            old_f1=old_metrics.get("f1") or "N/A",
-            new_version=new_version,
-            new_precision=new_metrics.get("precision", "N/A"),
-            new_recall=new_metrics.get("recall", "N/A"),
-            new_f1=new_metrics.get("f1", "N/A"),
-        )
+    eval_prompt = EVAL_PROMPT.format(
+        old_version=old_version,
+        old_precision=old_metrics.get("precision") or "N/A",
+        old_recall=old_metrics.get("recall") or "N/A",
+        old_f1=old_metrics.get("f1") or "N/A",
+        new_version=new_version,
+        new_precision=new_metrics.get("precision", "N/A"),
+        new_recall=new_metrics.get("recall", "N/A"),
+        new_f1=new_metrics.get("f1", "N/A"),
     )
+    try:
+        eval_llm_text = await asyncio.wait_for(
+            loop.run_in_executor(None, _call_guardian_llm, eval_prompt),
+            timeout=15.0,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("Guardian eval LLM call timed out")
+        eval_llm_text = None
 
     if eval_llm_text:
         eval_decision, eval_reasoning = _parse_eval_response(eval_llm_text)
