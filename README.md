@@ -1,8 +1,26 @@
 # Autonomous Fraud Detection Agent
 
-**Deriv AI Talent Sprint 2026** | Self-improving ML + Graph Pattern Mining + LLM Reasoning
+**Drishpex 2026** | Self-improving ML + Graph Pattern Mining + LLM Reasoning
 
-An autonomous agent that detects financial fraud in real-time, learns from analyst feedback, and discovers new fraud patterns — all without manual intervention.
+Fraud detection today is a one-way street — models score, analysts investigate, and nothing flows back. New attack patterns go undetected until someone manually intervenes. We built a fraud agent that completes the loop autonomously: it scores, flags, learns from analyst feedback, and discovers new fraud patterns from the transaction graph — no manual retraining, no rule writing, no waiting.
+
+## Live Demo
+
+- **Dashboard:** http://44.215.67.132:8501
+- **API:** http://44.215.67.132:8000
+- **API Docs:** http://44.215.67.132:8000/docs
+
+## How It Works (End-to-End)
+
+The analyst does exactly three things. Everything else is the agent.
+
+1. **Open the dashboard** — transactions are already streaming in and being scored. Cases are already appearing. The analyst didn't trigger any of this.
+2. **Pick a case, click "AI Explain"** — the LLM reads the transaction graph, velocity signals, and pattern context, then produces an investigation report with a recommended action. A 20-minute manual investigation becomes a 5-second read.
+3. **Label it** (fraud or legit) — that's the analyst's only real input. The moment they confirm, the system retrains the ML model in the background, and the next transaction is scored by a better model.
+
+Meanwhile, with zero user involvement: the pattern miner runs on the transaction graph and surfaces new fraud structures (wash trading rings, hub accounts, velocity clusters). Those patterns become features that flow back into the scorer automatically.
+
+**The loop:** stream → score → flag → explain → label → retrain → discover patterns → score better. The human only touches "explain" and "label".
 
 ## Architecture
 
@@ -58,8 +76,8 @@ docker compose --profile setup up --build
 ```
 
 Notes:
-- `docker compose` includes an Ollama service on port `11434` for LLM explanations.
-- The `setup` profile pre-pulls the model defined by `OLLAMA_MODEL`.
+- `docker compose` includes an Ollama service (internal only, not publicly exposed) for LLM explanations.
+- The `setup` profile initializes the DB, bootstraps the ML model, pulls the LLM, and seeds demo data.
 
 ## API Endpoints
 
