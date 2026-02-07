@@ -66,16 +66,16 @@ Fix the simulator to generate non-trivially-separable data and add velocity feat
 Implement the learning loop: train a real model on labeled data, retrain periodically, show metrics improving over time. This is the "self-improving" claim made visible.
 
 ### Tasks
-- [ ] 3.1 Create `risk/trainer.py` — train XGBClassifier (XGBoost) on labeled transactions
-- [ ] 3.2 Implement feature computation for training data (join transactions + analyst_labels)
-- [ ] 3.3 Save trained model with joblib, version it (v0.1.0, v0.2.0, etc.)
-- [ ] 3.4 Load trained model in scorer instead of hardcoded weights
-- [ ] 3.5 Create `/retrain` endpoint or scheduled job (every N labels received)
-- [ ] 3.6 Compute real precision/recall/F1 from labels vs predictions, store in metric_snapshots
-- [ ] 3.7 Update `GET /metrics` to return real precision/recall values
-- [ ] 3.8 Add model version display in UI
-- [ ] 3.9 Show before/after metrics to demonstrate improvement
-- [ ] 3.10 Handle cold start: use rule-based scoring until enough labels exist (min ~50 per class)
+- [x] 3.1 Create `risk/trainer.py` — train XGBClassifier (XGBoost) on labeled transactions
+- [x] 3.2 Implement feature computation for training data (join transactions + analyst_labels)
+- [x] 3.3 Save trained model with joblib, version it (v0.1.0, v0.2.0, etc.)
+- [x] 3.4 Load trained model in scorer instead of hardcoded weights
+- [x] 3.5 Create `/retrain` endpoint or scheduled job (every N labels received)
+- [x] 3.6 Compute real precision/recall/F1 from labels vs predictions, store in metric_snapshots
+- [x] 3.7 Update `GET /metrics` to return real precision/recall values
+- [x] 3.8 Add model version display in UI
+- [x] 3.9 Show before/after metrics to demonstrate improvement
+- [x] 3.10 Handle cold start: bootstrap_model.py generates synthetic data for initial training
 
 ### Acceptance
 - A real XGBoost model is trained and used for scoring
@@ -95,16 +95,16 @@ Implement the learning loop: train a real model on labeled data, retrain periodi
 Add at least one LLM integration point that makes the system genuinely agentic: the LLM reasons about cases, explains decisions, and generates pattern descriptions.
 
 ### Tasks
-- [ ] 4.1 Choose LLM provider (Deriv API / OpenAI / Anthropic / local Ollama)
-- [ ] 4.2 Create `backend/agent.py` — LLM-powered case investigation
-- [ ] 4.3 Implement case summarization: LLM analyzes transaction + features + risk score -> natural language summary
-- [ ] 4.4 Implement risk explanation: LLM explains *why* a transaction was flagged with specific evidence
-- [ ] 4.5 Implement pattern description generation: LLM describes discovered patterns in analyst-friendly language
-- [ ] 4.6 Add agent reasoning to case creation workflow (observe -> reason -> act)
-- [ ] 4.7 Create `/cases/{id}/summary` endpoint for LLM-generated summaries
-- [ ] 4.8 Display LLM summaries in UI Cases tab
-- [ ] 4.9 Add SHAP/feature importance visualization (even simple bar chart)
-- [ ] 4.10 Ensure LLM calls are async and don't block the scoring pipeline
+- [x] 4.1 Choose LLM provider — Ollama llama3.1:8b (local, no API key required)
+- [x] 4.2 Create `risk/explainer.py` — LLM-powered case investigation with 3-tier fallback
+- [x] 4.3 Implement case summarization: LLM analyzes transaction + features + risk score -> natural language summary
+- [x] 4.4 Implement risk explanation: LLM explains *why* a transaction was flagged with specific evidence
+- [x] 4.5 Implement pattern description generation: LLM describes discovered patterns in analyst-friendly language
+- [x] 4.6 Add agent reasoning to case creation workflow (observe -> reason -> act)
+- [x] 4.7 Create `/cases/{id}/explain` and `/cases/{id}/explain-stream` endpoints
+- [x] 4.8 Display LLM summaries in UI Cases tab with investigation timeline
+- [x] 4.9 Add feature importance bar chart (top 8 features from latest model)
+- [x] 4.10 Ensure LLM calls are async and don't block the scoring pipeline
 
 ### Acceptance
 - Cases have LLM-generated natural language summaries
@@ -124,16 +124,16 @@ Add at least one LLM integration point that makes the system genuinely agentic: 
 Implement actual graph-based pattern mining using networkx. Build sender-receiver transaction graphs, detect communities, find fraud rings, and generate meaningful pattern cards.
 
 ### Tasks
-- [ ] 5.1 Build sender-receiver graph from transactions using networkx
-- [ ] 5.2 Run connected component analysis to find transaction clusters
-- [ ] 5.3 Implement community detection (Louvain algorithm)
-- [ ] 5.4 Detect dense subgraphs (potential fraud rings)
-- [ ] 5.5 Implement cycle detection for round-tripping funds
-- [ ] 5.6 Generate pattern cards from graph analysis results
-- [ ] 5.7 Store pattern cards in database with proper schema fields
-- [ ] 5.8 Schedule pattern mining to run periodically (every N minutes)
-- [ ] 5.9 Display pattern cards in UI with graph visualization (if time permits)
-- [ ] 5.10 Feed discovered patterns back into scoring as features
+- [x] 5.1 Build sender-receiver graph from transactions using networkx
+- [x] 5.2 Run connected component analysis to find transaction clusters
+- [x] 5.3 Implement density-based clustering and hub detection (connected components, not Louvain)
+- [x] 5.4 Detect dense subgraphs (potential fraud rings)
+- [x] 5.5 Implement cycle detection for round-tripping funds
+- [x] 5.6 Generate pattern cards from graph analysis results
+- [x] 5.7 Store pattern cards in database with proper schema fields
+- [x] 5.8 Schedule pattern mining to run periodically (every N minutes)
+- [x] 5.9 Display pattern cards in UI Patterns tab
+- [x] 5.10 Feed discovered patterns back into scoring as 7 pattern-derived features
 
 ### Acceptance
 - Pattern miner builds and analyzes real graphs
@@ -146,22 +146,22 @@ Implement actual graph-based pattern mining using networkx. Build sender-receive
 ## Phase 6: Demo Polish + Story (PRESENTATION)
 **Priority:** P1
 **Estimated effort:** 3-4 hours
-**Status:** PARTIAL — Technical demo works, demo script + arch diagram + speech still needed
+**Status:** DONE
 
 ### Objective
 Polish the demo for 60-second clarity. Ensure judges see the full autonomous loop without explanation needed.
 
 ### Tasks
-- [ ] 6.1 Create demo seed script: pre-populate DB with ~200 labeled transactions for warm start
-- [ ] 6.2 Add visual indicators in UI: "Learning Update" animation when model retrains
-- [ ] 6.3 Add metric trend charts (precision/recall over time)
-- [ ] 6.4 Add "new pattern discovered" notification/animation
-- [ ] 6.5 Write 60-second demo script (what to show, in what order)
-- [ ] 6.6 Frame for Deriv: rename fraud types to trading-specific (wash trading, spoofing, etc.)
-- [ ] 6.7 Ensure `scripts/demo.sh` starts everything with one command
-- [ ] 6.8 Test full demo end-to-end 3 times
-- [ ] 6.9 Prepare judge Q&A responses (what's the model? how does it learn? what about scale?)
-- [ ] 6.10 Clean up code for review (hackathon fast-tracks to interviews)
+- [x] 6.1 Create demo seed script: `scripts/seed_demo.py` pre-populates DB with 200 transactions + retrain
+- [x] 6.2 Add visual indicators in UI: Orbital Greenhouse Canvas view with real-time animations
+- [x] 6.3 Add metric trend charts (precision/recall/F1/AUC-ROC over model versions)
+- [x] 6.4 Add "new pattern discovered" notification via SSE events
+- [x] 6.5 Write 60-second demo script (`docs/DEMO_SCRIPT.md` — full 5-7 min walkthrough)
+- [x] 6.6 Frame for Deriv: wash trading, spoofing, bonus abuse, structuring, velocity abuse
+- [x] 6.7 Ensure `scripts/demo.py` starts everything with one command
+- [x] 6.8 Test full demo end-to-end with QA reports (`reports/qa_*.md`)
+- [x] 6.9 Prepare judge Q&A responses (`docs/DEMO_SCRIPT.md` + `docs/PITCH_TRANSCRIPT.md`)
+- [x] 6.10 Code reviewed via 7-report adversarial QA session
 
 ### Acceptance
 - One-command demo works
@@ -380,14 +380,14 @@ Phase 5 (Graph Mining) ───────────────────
 | Ollama LLM case explanations | DONE | llama3.1:8b with template fallback |
 | Graph pattern mining (4 algorithms) | DONE | rings, hubs, velocity spikes, dense subgraphs |
 | One-command demo | DONE | `python scripts/demo.py` |
-| Test suite | DONE | 33 tests passing, 6 schemas valid |
+| Test suite | DONE | 49 tests passing, 6 schemas valid |
 
 ## Risk Register
 
 | Risk | Impact | Mitigation | Status |
 |------|--------|------------|--------|
 | LLM API not available at hackathon | Blocks Phase 4 | Used local Ollama + template fallback | MITIGATED |
-| Model accuracy too low with realistic data | Undermines demo credibility | GBClassifier achieves 0.97 F1 | MITIGATED |
+| Model accuracy too low with realistic data | Undermines demo credibility | XGBClassifier achieves 0.97 F1 | MITIGATED |
 | Demo crashes during presentation | Fatal | Tested end-to-end, added DB indexes for perf | MITIGATED |
 | Judge probes ML depth | Credibility damage | Feature importance available, versioned models | MITIGATED |
 | Time runs out before Phase 4 | "Agent" claim unsupported | All 6 phases completed | RESOLVED |

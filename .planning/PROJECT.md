@@ -42,13 +42,13 @@ This project was assessed by a 7-specialist panel on 2026-02-05. Full report at 
 
 ## Success Criteria (Hackathon)
 
-- [ ] Demo runs end-to-end in 60 seconds showing the full loop
-- [ ] Risk scorer returns real scores (not None)
-- [ ] At least one LLM integration point (case summary or risk explanation)
-- [ ] Retraining loop visibly improves metrics
-- [ ] Pattern cards generated from actual graph mining
-- [ ] Simulator generates non-trivially-separable data
-- [ ] UI shows: stream flowing, cases opening, labels applied, learning update, pattern cards
+- [x] Demo runs end-to-end in 60 seconds showing the full loop
+- [x] Risk scorer returns real scores (not None)
+- [x] At least one LLM integration point (case summary or risk explanation)
+- [x] Retraining loop visibly improves metrics
+- [x] Pattern cards generated from actual graph mining
+- [x] Simulator generates non-trivially-separable data
+- [x] UI shows: stream flowing, cases opening, labels applied, learning update, pattern cards
 
 ## Constraints
 
@@ -72,8 +72,11 @@ This project was assessed by a 7-specialist panel on 2026-02-05. Full report at 
 | `schemas/*.schema.json` | Contract source of truth (6 schemas) |
 | `backend/main.py` | FastAPI endpoints |
 | `backend/db.py` | Async SQLite connection + table definitions |
-| `risk/scorer.py` | Risk scoring (currently placeholder) |
-| `patterns/miner.py` | Pattern mining (currently placeholder) |
+| `risk/scorer.py` | Risk scoring — 34 features, XGBClassifier, pattern-derived features |
+| `risk/explainer.py` | LLM case explanation — 3-tier fallback (Golden Path / Ollama / Template) |
+| `risk/trainer.py` | ML training loop — versioned models, precision/recall/F1 tracking |
+| `patterns/miner.py` | Graph mining — 4 algorithms (rings, hubs, velocity, dense subgraphs) |
+| `patterns/features.py` | Pattern-to-ML feedback — 7 graph-derived features for scorer |
 | `sim/main.py` | Transaction simulator |
 | `ui/app.py` | Streamlit dashboard |
 | `scripts/demo.py` | One-command demo runner |
