@@ -254,6 +254,21 @@ Format: `[YYYY-MM-DD] Context -> Lesson -> Actionable Rule`
 - [2026-02-07] Hero transaction reliability -> Demo hero txn could score below threshold if model changed -> Added score floor (0.92) for metadata.demo_hero in scorer.py.
 - [2026-02-07] XSS in Orbital Greenhouse -> innerHTML from SSE data was unescaped -> Added _esc() HTML entity sanitizer in orbital_data.js for all dynamic content.
 - [2026-02-07] Explain-stream blocking -> Synchronous Ollama call froze entire event loop -> Wrapped in asyncio run_in_executor() for non-blocking LLM streaming.
+- [2026-02-07] Retrain Guardian agent -> Implemented LLM-powered autonomous model lifecycle agent (risk/guardian.py) -> Guardian decides retrain/skip, evaluates new models, rolls back if quality drops. Deterministic fallback always available. Key safety: asyncio.Lock prevents concurrent retrains, rollback renames (not deletes), 3-failure backoff. SKIP events silent in SSE.
+- [2026-02-07] Version sort bug -> `sorted(glob("model_v*.joblib"))` put v0.10.0 before v0.9.0 (lexicographic) -> Added `_version_sort_key()` in trainer.py for numeric semver sorting. Always use numeric tuple sort for version strings, never lexicographic.
+- [2026-02-07] Guardian loop retrigger -> Guardian kept retraining because `labels_since` reset to 0 after each retrain but drift remained high -> Ensure retrain conditions use `labels_since` as primary trigger; drift alone with 0 new labels should not retrigger immediately.
+- [2026-02-07] Zombie processes -> Multiple uvicorn instances on same port caused guardian to appear dead (`running: False`) -> Always `pkill -f uvicorn` and verify port is free before restarting backend during development.
+- [2026-02-07] Algorithm audit (4-agent team) -> 37 algorithms audited, 21 needed rewriting, velocity_clusters window_minutes was dead code -> See `reports/algorithm_verdicts.md` for full verdicts. Always verify parameters are actually used in function bodies.
+- [2026-02-07] Pattern detection rewrites -> Replaced naive implementations with textbook algorithms -> Ring detection: Tarjan's SCC (nx.strongly_connected_components). Hub detection: HITS algorithm (nx.hits). Velocity clusters: sliding window two-pointer. Dense subgraphs: SCC + flow-weighted density. Use networkx built-in algorithms, don't hand-roll.
+- [2026-02-07] Pattern feature substring bug -> `sender_id in description` matched user_1 inside user_10 -> Replaced with inverted index keyed by member_ids. Never use substring matching for entity membership checks.
+- [2026-02-07] Training-serving feature skew -> Duplicate compute_features in scorer.py and trainer.py caused silent divergence -> Deleted duplicate. Single source of truth: `risk.scorer.compute_features()` used by both training and serving.
+- [2026-02-07] Trivially separable bootstrap -> Metrics 1.0/1.0/1.0/1.0 meant model learned useless boundary -> Added pattern_count_sender overlap for legit power users. Target bootstrap F1: 0.85-0.95, not 1.0. Perfect metrics = red flag.
+- [2026-02-07] ML validation -> Single 80/20 split with 6 test samples is statistically meaningless -> Added stratified 5-fold CV with cross_val_score. Report mean±std. Added scale_pos_weight for class imbalance.
+- [2026-02-07] Cyclical time -> Linear hour/23 makes 0 and 23 maximally distant -> Replaced with sin/cos encoding: hour_sin, hour_cos (34→35 features).
+- [2026-02-07] Velocity query consolidation -> 11 serial SQL queries per transaction -> Consolidated to 5 with CASE WHEN aggregation + 4 new indexes. Latency ~5.5ms → ~1.5ms.
+- [2026-02-07] Structuring threshold -> $200-$950 was wrong; BSA threshold is $10,000 -> Fixed to gauss(9500, 300) clamped [5000, 9900].
+- [2026-02-07] Spoofing mismodeled -> Generates completed transfers, not order-place-cancel -> Renamed to "unauthorized_transfer" with realistic amount overlap.
+- [2026-02-07] Adversarial generators stateless -> 3 of 5 used new random IDs per call, no patterns formed -> Added persistent ID pools with circular flows for wash trade, recurring senders for structuring/velocity.
 
 ---
 

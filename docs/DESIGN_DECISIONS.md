@@ -42,12 +42,12 @@ What no one else demos is the **complete visible loop**: stream → score → ca
 | Dimension | Hackathon Grade | Production Grade | Key Finding |
 |-----------|----------------|------------------|-------------|
 | ML Model (XGBoost) | B+ | D | Correct choice for constraints; single model with no ensemble/unsupervised layer |
-| Feature Engineering (34 features) | B+ | C | Includes velocity, device/IP reuse, geo risk, card BIN, and pattern-derived features |
+| Feature Engineering (35 features) | A- | C | Includes velocity, device/IP reuse, geo risk, card BIN, cyclical time, and pattern-derived features. Stratified 5-fold CV + scale_pos_weight. |
 | LLM Integration (llama3.1:8b) | A- | C+ | Architecture is right (explain, don't score); 8B reasoning depth is shallow |
 | Self-Learning Loop | B | F | Auto-retrain after labels implemented; selection bias and no champion-challenger remain |
-| Graph Mining (networkx) | B+ | F | Algorithmically interesting; 7 pattern features now feed into ML scorer |
+| Graph Mining (networkx) | A- | F | Tarjan's SCC for rings/dense subgraphs, HITS for hubs, sliding window for velocity; 7 pattern features feed into ML scorer |
 | Systems Architecture | A (for hackathon) | F | Single process, SQLite, in-memory bus — all correct for demo, all wrong for production |
-| Fraud Typology Accuracy | B- | C- | Spoofing is fundamentally mismodeled; missing chargeback fraud and ATO |
+| Fraud Typology Accuracy | B | C- | Spoofing renamed to unauthorized_transfer; structuring threshold fixed to $10K BSA; missing chargeback fraud and ATO |
 | Regulatory Defensibility | N/A | D+ | Right architectural intent; missing order-level surveillance, STOR/SAR filing, audit trail |
 
 ---
@@ -186,7 +186,7 @@ Our system collapses all five layers into a single XGBoost model. When an advers
 
 ### Feature Engineering: The Critical Gap
 
-**34 features meets the academic minimum.** Academic literature recommends 30-50; production systems use 200-500+. Our 34-feature set covers amount, velocity, temporal, device/IP, receiver-side, geo, card BIN, and pattern-derived categories.
+**35 features meets the academic minimum.** Academic literature recommends 30-50; production systems use 200-500+. Our 35-feature set covers amount, velocity, temporal (cyclical sin/cos encoding), device/IP, receiver-side, geo, card BIN, and pattern-derived categories. **UPDATE (Feb 7):** Added cyclical time encoding (hour_sin, hour_cos replacing linear hour_of_day), bringing total from 34 to 35. Model now uses stratified 5-fold CV with scale_pos_weight for class imbalance handling.
 
 The most damaging finding: **the simulator generates rich metadata that the scorer never reads.**
 
@@ -271,10 +271,12 @@ The pre-canned response includes `"agent": "fraud-agent-demo (GOLDEN PATH)"` —
 
 | Algorithm | What It Detects | Method |
 |-----------|----------------|--------|
-| Ring Detection | Wash trading circles | `nx.simple_cycles(G, length_bound=6)` |
-| Hub Detection | Money mules, distribution points | Degree analysis (≥5 connections) |
-| Velocity Clusters | Rapid-fire senders | Count-based grouping (not truly temporal) |
-| Dense Subgraphs | Coordinated activity | Connected component density ≥0.5 |
+| Ring Detection | Wash trading circles | **Tarjan's SCC** (`nx.strongly_connected_components`) + bounded DFS for representative cycles, ranked by flow weight |
+| Hub Detection | Money mules, distribution points | **HITS algorithm** (`nx.hits`) for hub/authority scores + z-score adaptive thresholding on weighted degree |
+| Velocity Clusters | Rapid-fire senders | **Sliding window two-pointer** with actual `window_minutes` temporal analysis |
+| Dense Subgraphs | Coordinated activity | **SCC-based** directed density + flow-weighted ranking via `density * log(total_flow + 1)` |
+
+**UPDATE (Feb 7):** All 4 algorithms rewritten from naive implementations to textbook graph algorithms. See `reports/algorithm_verdicts.md` for detailed before/after analysis.
 
 ### Why This Is the Real Jewel (Underplayed)
 
@@ -301,11 +303,13 @@ Production systems close this loop: graph features (is the sender in a ring? wha
 
 **Production replacement:** Neo4j, TigerGraph, or Amazon Neptune for persistent, incrementally-updated graph with built-in algorithm libraries.
 
-### Implementation Issues
+### Implementation Issues (Resolved)
 
-- **Velocity clusters don't actually measure velocity.** The `window_minutes` parameter is accepted but never used in the function body. It counts total transactions per sender regardless of timing.
-- **Dense subgraph detection loses directionality.** Converts to undirected graph, so A→B→C (layering chain) looks the same as A↔B↔C (bidirectional wash trading).
-- **Hub detection uses absolute thresholds.** Degree ≥5 is unusual in our 800-user demo; it's normal for legitimate merchants on a real platform.
+- ~~**Velocity clusters don't actually measure velocity.**~~ **FIXED (Feb 7):** Sliding window two-pointer now uses `window_minutes` parameter for true temporal burst detection.
+- ~~**Dense subgraph detection loses directionality.**~~ **FIXED (Feb 7):** Now uses `nx.strongly_connected_components` on directed graph.
+- ~~**Hub detection uses absolute thresholds.**~~ **FIXED (Feb 7):** Now uses HITS algorithm + z-score adaptive thresholding.
+- **Pattern feature lookup used substring matching** causing false positives. **FIXED (Feb 7):** Now uses inverted index keyed by `member_ids`.
+- **Pattern dedup was name-based** causing collisions. **FIXED (Feb 7):** Now uses structural signature hash of sorted member IDs.
 
 ---
 
@@ -392,7 +396,7 @@ Everything runs in one uvicorn process: FastAPI, ML scoring, graph mining, SSE s
 | Component | Hackathon | Production |
 |-----------|-----------|------------|
 | Transaction store | SQLite (single file) | PostgreSQL + Citus sharding |
-| Velocity features | 11 SQL queries per request (15-25ms) | Redis Sorted Sets (<1ms) |
+| Velocity features | 5 consolidated SQL queries per request (~5ms) + 4 indexes | Redis Sorted Sets (<1ms) |
 | Event streaming | `list[asyncio.Queue]` | Kafka (days of replay, exactly-once) |
 | ML serving | In-process XGBoost | ONNX Runtime / TensorFlow Serving |
 | Graph database | In-memory networkx | Neo4j / TigerGraph |
@@ -409,8 +413,8 @@ Everything runs in one uvicorn process: FastAPI, ML scoring, graph mining, SSE s
 |-----------|----------|-------|
 | **Wash Trading** | GOOD | Correctly models circular fund flows. Limitation: real wash trading at a derivatives platform involves offsetting positions (long+short), not just transfers. |
 | **Bonus Abuse** | GOOD concept, NOW FUNCTIONAL | Simulator generates shared device/IP signals. **UPDATE (Feb 7):** `device_reuse_count_24h` and `ip_reuse_count_24h` are now featurized in the scorer. ML model can detect bonus abuse via shared device/IP patterns. |
-| **Structuring** | PARTIAL | $1K threshold isn't a real regulatory threshold. No customer segmentation = every active trader triggers structuring alerts. |
-| **Spoofing** | **FUNDAMENTALLY MISMODELED** | Simulator generates large completed transfers and labels them "spoofing." Real spoofing is orders placed and cancelled before execution. The system has no concept of order lifecycle. |
+| **Structuring** | IMPROVED | **UPDATE (Feb 7):** Threshold fixed to cluster near $10K BSA reporting threshold (gauss $9,500 ± $300). No customer segmentation still a gap. |
+| **Unauthorized Transfer** (was Spoofing) | RENAMED | **UPDATE (Feb 7):** Renamed from "spoofing" to "unauthorized_transfer" — honest about what it detects. Amount overlap with legit improved (lognormal mean=$3K). Mixed channels (api 60%, web 40%). |
 | **Velocity Abuse** | WEAK | Not a recognized fraud taxonomy term. Velocity is a characteristic of other fraud types, not a type itself. |
 
 ### Critical Missing Types
@@ -503,7 +507,7 @@ The API returns risk scores and decisions for every transaction (enabling model 
 | Fraud Type | Evasion Strategy | Time to Evade |
 |-----------|-----------------|---------------|
 | Wash Trading | Use 7+ intermediaries (bypasses length_bound=6); spread legs across multiple days (bypasses 24h window) | Minutes |
-| Spoofing | Already undetectable (system has no order lifecycle data) | N/A |
+| Unauthorized Transfer | High-value first-time transfers from unknown accounts; amounts overlap with legit | Minutes (split into smaller amounts) |
 | Bonus Abuse | Detectable via device/IP reuse features (featurized Feb 7) | Minutes (rotate devices, use VPN) |
 | Structuring | Use 50+ accounts instead of 3; 1-2 txns/day/account; amounts mimicking legitimate distribution | Minutes |
 | Velocity | Stay under 6 txns/hour threshold; rotate across 10 accounts | Minutes |
@@ -522,7 +526,7 @@ The API returns risk scores and decisions for every transaction (enabling model 
 
 ### Simulator Signal Leakage
 
-Fraud user IDs encode the fraud type: `ring_a_1`, `smurfer_2`, `bonus_3`, `spoofer_4`. With only 3-5 fraud accounts per type vs 800 normal accounts, velocity features become near-perfect proxies for user identity. The model learns "elevated velocity = fraud" — true only because of asymmetric pool sizes, not any generalizable signal.
+Fraud user IDs encode the fraud type: `ring_a_1`, `smurfer_2`, `bonus_3`, `unauth_4`. **UPDATE (Feb 7):** Pool sizes increased from 3-5 to 8-15 per type, reducing velocity-as-identity proxy effect. Adversarial generators now use persistent ID pools with stateful circular flows (wash trade) and recurring senders (structuring/velocity). However, the fundamental asymmetry (15 fraud accounts vs 800 normal) remains.
 
 ---
 
@@ -532,7 +536,7 @@ Fraud user IDs encode the fraud type: `ring_a_1`, `smurfer_2`, `bonus_3`, `spoof
 |-----------|--------|-------|
 | Transaction scoring engine | **Proof-of-concept** | Works on simulated data; would produce catastrophic FP rates on real data |
 | Self-learning feedback loop | **Proof-of-concept** | Retraining works; five structural pitfalls would cause degradation in weeks |
-| Graph pattern mining | **Strong proof-of-concept** | Algorithmically interesting; the real jewel of the project |
+| Graph pattern mining | **Strong proof-of-concept** | Tarjan's SCC, HITS, sliding window — textbook algorithms; the real jewel of the project |
 | LLM case explanations | **Toy → PoC boundary** | Currently a narrator, not a reasoning agent; golden path is pre-canned |
 | Real-time streaming | **Proof-of-concept** | SSE works for demo; in-memory bus has no persistence or replay |
 | UI/visualization | **Proof-of-concept** | Orbital Greenhouse canvas UI functional with live SSE data, XSS-sanitized rendering, Start/Stop controls |

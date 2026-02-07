@@ -17,7 +17,7 @@ Simulator ──→ FastAPI Backend ──→ Risk Scorer (ML) ──→ Cases
                          Model Update
 ```
 
-**Pipeline:** Stream → Score (27 core features + 7 pattern-derived = 34 total) → Case → Label → Learn → Pattern Discovery
+**Pipeline:** Stream → Score (28 core features + 7 pattern-derived = 35 total) → Case → Label → Learn → Pattern Discovery
 
 ## Tech Stack
 
@@ -29,7 +29,8 @@ Simulator ──→ FastAPI Backend ──→ Risk Scorer (ML) ──→ Cases
 | ML Model | XGBClassifier (XGBoost) |
 | Graph Mining | networkx |
 | LLM | Ollama (llama3.1:8b) |
-| Simulator | 5 fraud typologies (wash trading, spoofing, bonus abuse, structuring, velocity abuse) |
+| Simulator | 5 fraud typologies (wash trading, unauthorized transfer, bonus abuse, structuring, velocity abuse) |
+| Graph Algorithms | Tarjan's SCC, HITS, sliding window two-pointer |
 
 ## Quick Start
 
@@ -52,9 +53,13 @@ Then open:
 # Build and run
 docker compose up --build
 
-# With DB init and seed data
+# With DB init, seed data, and LLM model pull
 docker compose --profile setup up --build
 ```
+
+Notes:
+- `docker compose` includes an Ollama service on port `11434` for LLM explanations.
+- The `setup` profile pre-pulls the model defined by `OLLAMA_MODEL`.
 
 ## API Endpoints
 

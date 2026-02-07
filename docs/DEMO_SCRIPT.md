@@ -45,7 +45,7 @@ Open two browser tabs:
 >
 > **Transactions stream in** from trading activity — we simulate this with realistic synthetic data covering five fraud typologies.
 >
-> **Every transaction gets scored in real-time** by a machine learning model — not rules, not thresholds — an XGBoost model trained on 34 behavioral features including device reuse signals, IP geolocation risk, receiver-side inflow patterns, and card BIN risk scoring. We chose XGBoost specifically for its built-in L1/L2 regularization and native sparse data handling — critical when most fraud features are zeros. Things like: how many transactions did this sender make in the last hour? How many unique recipients? How fast are they going? What device are they on? Have we seen this IP before?
+> **Every transaction gets scored in real-time** by a machine learning model — not rules, not thresholds — an XGBoost model trained on 35 behavioral features including device reuse signals, IP geolocation risk, cyclical time encoding, receiver-side inflow patterns, and card BIN risk scoring. We chose XGBoost specifically for its built-in L1/L2 regularization and native sparse data handling — critical when most fraud features are zeros. We validate with stratified 5-fold cross-validation and handle class imbalance with automatic positive weight scaling. Things like: how many transactions did this sender make in the last hour? How many unique recipients? How fast are they going? What device are they on? Have we seen this IP before?
 >
 > **High-risk transactions automatically become cases** — no human triggers this. The system decides.
 >
@@ -53,7 +53,7 @@ Open two browser tabs:
 >
 > **Here's the key part — the learning loop.** When the analyst labels a case as fraud or legitimate, that label feeds back into the training pipeline. The model retrains, gets smarter, and the next batch of transactions is scored by a better model. We track this — version 1 had an F1 of 0.57, version 2 jumped to 0.97.
 >
-> **On top of all this, a graph mining engine** analyzes the transaction network to find structural patterns — circular money rings, hub accounts, velocity spikes — things you can't see from individual transactions.
+> **On top of all this, a graph mining engine** analyzes the transaction network using textbook graph algorithms — Tarjan's strongly connected components for circular money rings, Kleinberg's HITS algorithm for hub accounts, sliding window analysis for velocity spikes — things you can't see from individual transactions.
 >
 > Let me show you this running live."
 
