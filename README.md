@@ -13,7 +13,7 @@ Fraud detection today is a one-way street — models score, analysts investigate
 | Live Demo | [http://44.215.67.132:8501](http://44.215.67.132:8501) |
 | API Docs | [http://44.215.67.132:8000/docs](http://44.215.67.132:8000/docs) |
 | GitHub Repo | [github.com/naqeebali-shamsi/deriv-ai-sprint-feb-2026](https://github.com/naqeebali-shamsi/deriv-ai-sprint-feb-2026) |
-| Video Presentation | *TBD* |
+| Video Presentation | [https://www.loom.com/share/4be2a356f4a44968b96f071c0b08dc75](https://www.loom.com/share/4be2a356f4a44968b96f071c0b08dc75) |
 | Slide Deck | [https://notebooklm.google.com/notebook/541e4c24-b36c-412e-8282-99e360e60f36?artifactId=0c81fb24-3b0b-44d5-8159-411f4f87f006](https://notebooklm.google.com/notebook/541e4c24-b36c-412e-8282-99e360e60f36?artifactId=0c81fb24-3b0b-44d5-8159-411f4f87f006) |
 
 ---
