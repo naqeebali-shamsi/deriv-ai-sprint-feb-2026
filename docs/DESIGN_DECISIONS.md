@@ -1,6 +1,6 @@
 # Design Decisions, Tradeoffs & Real-World Impact Assessment
 
-**Autonomous Fraud Detection Agent — Deriv AI Talent Sprint 2026**
+**Autonomous Fraud Detection Agent — Drishpex 2026**
 **Date:** 2026-02-07
 **Method:** 7-specialist panel (Market Researcher, ML/AI Architect, Financial Domain Expert, Systems Architect, Business Analyst, Red Team Analyst, Creative Builder)
 

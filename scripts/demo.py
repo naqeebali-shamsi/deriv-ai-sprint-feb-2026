@@ -6,6 +6,7 @@ Usage: python scripts/demo.py
 """
 import atexit
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -14,8 +15,9 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent.parent
 os.chdir(PROJECT_ROOT)
 
-# Track subprocesses for cleanup
+# Track subprocesses and open files for cleanup
 processes: list[subprocess.Popen] = []
+log_files: list = []
 
 
 def cleanup():
@@ -30,23 +32,83 @@ def cleanup():
                 p.kill()
             except Exception:
                 pass
+    
+    for f in log_files:
+        try:
+            f.close()
+        except Exception:
+            pass
     print("All services stopped.")
 
 
 atexit.register(cleanup)
 
 
+def kill_stale_processes():
+    """Kill leftover uvicorn/streamlit processes that may hold app.db open."""
+    if sys.platform == "win32":
+        # On Windows, kill by process name matching our known services
+        for pattern in ["uvicorn", "streamlit"]:
+            try:
+                result = subprocess.run(
+                    ["taskkill", "/F", "/IM", "python.exe", "/FI", f"WINDOWTITLE eq *{pattern}*"],
+                    capture_output=True, text=True, timeout=5,
+                )
+            except Exception:
+                pass
+        # Also use wmic/powershell to find python processes with uvicorn/streamlit in cmdline
+        for pattern in ["uvicorn", "streamlit"]:
+            try:
+                result = subprocess.run(
+                    ["powershell", "-Command",
+                     f"Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" "
+                     f"| Where-Object {{ $_.CommandLine -like '*{pattern}*' }} "
+                     f"| ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }}"],
+                    capture_output=True, text=True, timeout=10,
+                )
+            except Exception:
+                pass
+
+        # Kill by port (8000, 8501) to be sure
+        for port in [8000, 8501]:
+            try:
+                subprocess.run(
+                    ["powershell", "-Command",
+                     f"$tcp = Get-NetTCPConnection -LocalPort {port} -ErrorAction SilentlyContinue; if ($tcp) {{ Stop-Process -Id $tcp.OwningProcess -Force }}"],
+                    capture_output=True, text=True, timeout=5,
+                )
+            except Exception:
+                pass
+
+    else:
+        # Unix: pkill by command pattern
+        for pattern in ["uvicorn", "streamlit"]:
+            try:
+                subprocess.run(["pkill", "-f", pattern], capture_output=True, timeout=5)
+            except Exception:
+                pass
+    # Brief pause to let OS release file handles
+    time.sleep(1)
+
+
 def run_bg(cmd: list[str], label: str) -> subprocess.Popen:
-    """Start a background process."""
+    """Start a background process with logging."""
+    log_path = PROJECT_ROOT / "logs" / f"{label}.log"
+    log_path.parent.mkdir(exist_ok=True)
+    
+    # Open file (will be closed in cleanup)
+    f = open(log_path, "w", encoding="utf-8")
+    log_files.append(f)
+    
     proc = subprocess.Popen(
         cmd,
-        stdout=subprocess.PIPE,
+        stdout=f,
         stderr=subprocess.STDOUT,
         text=True,
         cwd=str(PROJECT_ROOT),
     )
     processes.append(proc)
-    print(f"  Started {label} (PID {proc.pid})")
+    print(f"  Started {label} (PID {proc.pid}) -> logs/{label}.log")
     return proc
 
 
@@ -81,7 +143,7 @@ def wait_for_backend(url: str = "http://localhost:8000/health", retries: int = 1
 def main():
     print("=" * 50)
     print("  Autonomous Fraud Agent - Demo Runner")
-    print("  Deriv AI Talent Sprint 2026")
+    print("  Drishpex 2026")
     print("=" * 50)
 
     py = sys.executable  # Use same Python interpreter
@@ -90,7 +152,16 @@ def main():
     print("\n[1/7] Initializing database...")
     db_path = PROJECT_ROOT / "app.db"
     if db_path.exists():
-        db_path.unlink()
+        try:
+            db_path.unlink()
+        except PermissionError:
+            print("  app.db is locked — killing stale processes...")
+            kill_stale_processes()
+            try:
+                db_path.unlink()
+            except PermissionError:
+                print("  ERROR: app.db is still locked. Close any programs using it and retry.")
+                sys.exit(1)
     run_fg([py, "scripts/init_db.py"], "init_db")
 
     # Step 2: Validate schemas

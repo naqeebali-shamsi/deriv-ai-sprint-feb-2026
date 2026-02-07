@@ -1,6 +1,6 @@
 # HACKATHON PITCH TRANSCRIPT: Autonomous Fraud Agent
 **Speaker:** [Your Name/Role]
-**Context:** Deriv AI Talent Sprint 2026
+**Context:** Drishpex 2026
 **Duration:** 2 Minutes (Short, Sharp)
 
 ---

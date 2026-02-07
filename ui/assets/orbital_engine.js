@@ -196,7 +196,7 @@ const OrbitalEngine = (() => {
       }
     }
 
-    addSatellite() {
+    addSatellite(startX, startY) {
       const L = this.layout;
 
       // Find orbit band with fewest satellites
@@ -214,6 +214,7 @@ const OrbitalEngine = (() => {
       }
 
       const band = ORBIT_BANDS[bestBand];
+      const hasEntry = startX !== undefined;
       const satellite = {
         orbitRadius: band.radius * L.earthRadius,
         orbitAngle:  Math.random() * Math.PI * 2,
@@ -224,6 +225,10 @@ const OrbitalEngine = (() => {
         mergeTarget: null,
         mergeProgress: 0,
         bandIndex:   bestBand,
+        entering:       hasEntry,
+        enterStartX:    hasEntry ? startX : 0,
+        enterStartY:    hasEntry ? startY : 0,
+        enterDuration:  1.2,
       };
 
       this.satellites.push(satellite);
@@ -375,7 +380,7 @@ const OrbitalEngine = (() => {
                    sat._mergeGen === gen && sat._mergeBand === bandIdx)
         );
 
-        // Add one upgraded satellite
+        // Add one upgraded satellite (smooth entry from merge point)
         const newGen = Math.min(gen + 1, MAX_GENERATION);
         const band   = ORBIT_BANDS[bandIdx];
         this.satellites.push({
@@ -388,9 +393,13 @@ const OrbitalEngine = (() => {
           mergeTarget:   null,
           mergeProgress: 0,
           bandIndex:     bandIdx,
+          entering:       true,
+          enterStartX:    cx,
+          enterStartY:    cy,
+          enterDuration:  0.8,
         });
 
-        // Merge flash effect
+        // Subtle merge glow
         this.effects.push({ type: 'merge', x: cx, y: cy, startTime: this.time });
       }
 
@@ -481,24 +490,8 @@ const OrbitalEngine = (() => {
             p.x = pt.x;
             p.y = pt.y;
             if (p.progress >= 1) {
-              p.state     = 'landing';
-              p.spawnTime = this.time;
-              p.progress  = 0;
-            }
-            break;
-          }
-          case 'landing': {
-            p.progress = clamp(elapsed / LAND_DUR, 0, 1);
-            if (p.progress >= 1) {
-              // Convert to orbiting satellite
-              this.addSatellite();
-              // Landing burst effect
-              this.effects.push({
-                type:      'landing',
-                x:         p.x,
-                y:         p.y,
-                startTime: this.time,
-              });
+              // Slide directly into orbit (no landing burst)
+              this.addSatellite(p.x, p.y);
               p.state = 'done';
             }
             break;
@@ -507,8 +500,12 @@ const OrbitalEngine = (() => {
         }
       }
 
-      // --- Satellites: advance orbit angles + merge logic ---
+      // --- Satellites: advance orbit angles + entry + merge logic ---
       for (const sat of this.satellites) {
+        if (sat.entering) {
+          const enterT = clamp((this.time - sat.startTime) / (sat.enterDuration || 1.0), 0, 1);
+          if (enterT >= 1) sat.entering = false;
+        }
         if (!sat.merging) {
           sat.orbitAngle += sat.orbitSpeed * dt;
         }
@@ -551,57 +548,40 @@ const OrbitalEngine = (() => {
         time:       this.time,
       });
 
-      // 4. Earth (replaces fortress dome)
-      if (PS.drawEarth) {
-        PS.drawEarth(ctx, L.fortressX, L.fortressY, L.earthRadius, {
-          time: this.time,
-        });
-      } else {
-        // Fallback to fortress dome if drawEarth not available yet
-        PS.drawFortressDome(ctx, L.fortressX, L.fortressY, L.fortressW, L.fortressH, {
-          time: this.time,
-        });
-      }
-
-      // 4b. Draw orbit band rings (faint ellipses)
-      ctx.save();
-      ctx.strokeStyle = 'rgba(100, 180, 255, 0.08)';
-      ctx.lineWidth   = 1;
-      for (const band of ORBIT_BANDS) {
-        const rx = band.radius * L.earthRadius;
-        const ry = rx * 0.45; // perspective squash
-        ctx.beginPath();
-        ctx.ellipse(L.fortressX, L.fortressY, rx, ry, 0, 0, Math.PI * 2);
-        ctx.stroke();
-      }
-      ctx.restore();
-
-      // 5. Orbiting satellites (replaces defense turrets)
+      // 4. Compute satellite positions and split behind/front of planet
+      const satPositions = [];
       for (const sat of this.satellites) {
-        let sx, sy;
+        let sx, sy, behind;
+        const orbitX = L.fortressX + Math.cos(sat.orbitAngle) * sat.orbitRadius;
+        const orbitY = L.fortressY + Math.sin(sat.orbitAngle) * sat.orbitRadius * 0.45;
 
-        if (sat.merging && sat.mergeTarget) {
-          // Interpolate from orbit position to merge target
-          const orbitX = L.fortressX + Math.cos(sat.orbitAngle) * sat.orbitRadius;
-          const orbitY = L.fortressY + Math.sin(sat.orbitAngle) * sat.orbitRadius * 0.45;
+        if (sat.entering) {
+          // Smooth ease-in-out from start position to orbital position
+          const enterT = clamp((this.time - sat.startTime) / (sat.enterDuration || 1.0), 0, 1);
+          const eased = enterT < 0.5 ? 2*enterT*enterT : 1 - Math.pow(-2*enterT + 2, 2) / 2;
+          sx = sat.enterStartX + (orbitX - sat.enterStartX) * eased;
+          sy = sat.enterStartY + (orbitY - sat.enterStartY) * eased;
+          behind = false; // entering satellites always visible (in front)
+        } else if (sat.merging && sat.mergeTarget) {
           const t = sat.mergeProgress;
-          // Ease-in-out
           const eased = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
           sx = orbitX + (sat.mergeTarget.x - orbitX) * eased;
           sy = orbitY + (sat.mergeTarget.y - orbitY) * eased;
+          behind = Math.sin(sat.orbitAngle) < 0;
         } else {
-          sx = L.fortressX + Math.cos(sat.orbitAngle) * sat.orbitRadius;
-          sy = L.fortressY + Math.sin(sat.orbitAngle) * sat.orbitRadius * 0.45;
+          sx = orbitX;
+          sy = orbitY;
+          behind = Math.sin(sat.orbitAngle) < 0;
         }
+        satPositions.push({ sat, sx, sy, behind });
+      }
 
+      // Helper to draw a single satellite at computed position
+      const drawSat = ({ sat, sx, sy }) => {
         const satSize = clamp(1 + sat.generation * 0.4, 1, 3);
-
         if (PS.drawSatellite) {
-          PS.drawSatellite(ctx, sx, sy, satSize, sat.generation, {
-            time: this.time,
-          });
+          PS.drawSatellite(ctx, sx, sy, satSize, sat.generation, { time: this.time });
         } else {
-          // Fallback: draw a simple circle if drawSatellite not available yet
           const r = 3 + sat.generation * 2;
           const genColors = ['#80f0ff', '#4ade80', '#facc15', '#f97316', '#ef4444'];
           ctx.fillStyle = genColors[sat.generation] || '#80f0ff';
@@ -609,6 +589,40 @@ const OrbitalEngine = (() => {
           ctx.arc(sx, sy, r * satSize * 0.5, 0, Math.PI * 2);
           ctx.fill();
         }
+      };
+
+      // 4a. Draw orbit band rings (faint ellipses)
+      ctx.save();
+      ctx.strokeStyle = 'rgba(100, 180, 255, 0.08)';
+      ctx.lineWidth   = 1;
+      for (const band of ORBIT_BANDS) {
+        const rx = band.radius * L.earthRadius;
+        const ry = rx * 0.45;
+        ctx.beginPath();
+        ctx.ellipse(L.fortressX, L.fortressY, rx, ry, 0, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      // 4b. Draw behind-planet satellites (Earth will occlude them naturally)
+      for (const sp of satPositions) {
+        if (sp.behind) drawSat(sp);
+      }
+
+      // 4c. Earth (drawn over behind-satellites for natural occlusion)
+      if (PS.drawEarth) {
+        PS.drawEarth(ctx, L.fortressX, L.fortressY, L.earthRadius, {
+          time: this.time,
+        });
+      } else {
+        PS.drawFortressDome(ctx, L.fortressX, L.fortressY, L.fortressW, L.fortressH, {
+          time: this.time,
+        });
+      }
+
+      // 4d. Draw front-of-planet satellites (visible in front of Earth)
+      for (const sp of satPositions) {
+        if (!sp.behind) drawSat(sp);
       }
 
       // 6. Pods
@@ -663,13 +677,6 @@ const OrbitalEngine = (() => {
           });
         }
 
-        // Landing pulse
-        if (p.state === 'landing') {
-          PS.drawLandingBurst(ctx, p.x, p.y, p.progress, {
-            maxRadius: 20,
-            color:     C.clearGreen,
-          });
-        }
       }
 
       // 7. Brain pulse effects
@@ -698,18 +705,18 @@ const OrbitalEngine = (() => {
             );
           }
         } else if (ef.type === 'merge') {
-          // Merge flash: bright pulse with gold/cyan sparkles
+          // Subtle merge glow
           PS.drawBrainPulse(ctx, ef.x, ef.y, progress, {
-            maxRadius: 40,
+            maxRadius: 18,
           });
-          for (let i = 0; i < 6; i++) {
-            const angle = (i / 6) * Math.PI * 2 + this.time * 3;
-            const dist  = progress * 30;
+          for (let i = 0; i < 3; i++) {
+            const angle = (i / 3) * Math.PI * 2 + this.time * 2;
+            const dist  = progress * 14;
             PS.drawSparkle(
               ctx,
               ef.x + Math.cos(angle) * dist,
               ef.y + Math.sin(angle) * dist,
-              8, progress, '#facc15'
+              5, progress, '#facc15'
             );
           }
         }

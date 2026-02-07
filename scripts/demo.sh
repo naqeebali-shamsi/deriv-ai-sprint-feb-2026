@@ -9,7 +9,7 @@ cd "$PROJECT_ROOT"
 
 echo "=========================================="
 echo "  Autonomous Fraud Agent - Demo Runner"
-echo "  Deriv AI Talent Sprint 2026"
+echo "  Drishpex 2026"
 echo "=========================================="
 
 # Colors

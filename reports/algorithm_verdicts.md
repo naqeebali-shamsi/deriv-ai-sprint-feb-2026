@@ -1,6 +1,6 @@
 # Algorithm Verdict Report — Staff Engineer Synthesis
 
-**Autonomous Fraud Detection Agent — Deriv AI Talent Sprint 2026**
+**Autonomous Fraud Detection Agent — Drishpex 2026**
 **Date:** 2026-02-07
 **Method:** 4 specialist audits (Pattern Detection, Risk Scoring, Backend Systems, Simulator) synthesized by Staff Engineer
 **Scope:** Every static function and algorithm in the codebase evaluated for: correctness, complexity, and whether to REWRITE with proper algorithms or REPLACE with LLM agents

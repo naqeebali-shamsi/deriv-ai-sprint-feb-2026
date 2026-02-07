@@ -1,6 +1,6 @@
 # ROADMAP.md — Hackathon Sprint Execution Plan
 
-## Milestone: Hackathon MVP (Deriv AI Talent Sprint)
+## Milestone: Hackathon MVP (Drishpex)
 
 **Goal:** Transform the blueprint into a functional autonomous fraud agent demo.
 **Success metric:** 60-second demo showing the full autonomy loop.

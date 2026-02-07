@@ -3,7 +3,7 @@
 ## Project Identity
 
 - **Name:** Autonomous Fraud Detection Agent
-- **Type:** Hackathon MVP (Deriv AI Talent Sprint, Feb 6-8, 2026)
+- **Type:** Hackathon MVP (Drishpex, Feb 6-8, 2026)
 - **Stack:** Python, FastAPI, Streamlit, SQLite, XGBoost (XGBClassifier), networkx
 - **Goal:** Ship a functional autonomous fraud-agent demo that wins/places at hackathon
 
